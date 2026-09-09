@@ -149,6 +149,7 @@ type GameApi = {
   destroy: () => void;
 };
 type GameWindow = Window & {
+  loadCharacterAtlas: () => Promise<HTMLCanvasElement>;
   createBombaGame: (
     canvas: HTMLCanvasElement,
     onState: (state: Snapshot) => void,
@@ -157,7 +158,8 @@ type GameWindow = Window & {
 };
 export default function Home() {
   const canvas = useRef<HTMLCanvasElement>(null),
-    api = useRef<GameApi | null>(null);
+    api = useRef<GameApi | null>(null),
+    lastSpoken = useRef('');
   const [selected, select] = useState(0),
     [state, setState] = useState<Snapshot>(initial),
     [ready, setReady] = useState(false),
@@ -170,15 +172,22 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=3';
-    script.onload = () => {
+    script.src = '/game/boot.js?v=4';
+    script.onload = async () => {
       if (disposed || !canvas.current) return;
-      api.current = (window as unknown as GameWindow).createBombaGame(
-        canvas.current,
-        (s: Snapshot) => setState(s),
-        setError,
-      );
-      setReady(true);
+      try {
+        const gameWindow = window as unknown as GameWindow;
+        await gameWindow.loadCharacterAtlas();
+        if (disposed || !canvas.current) return;
+        api.current = gameWindow.createBombaGame(
+          canvas.current,
+          (s: Snapshot) => setState(s),
+          setError,
+        );
+        setReady(true);
+      } catch {
+        setError('Os personagens não carregaram. Recarregue a página.');
+      }
     };
     script.onerror = () =>
       setError(
@@ -201,6 +210,21 @@ export default function Home() {
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen?.();
     else document.documentElement.requestFullscreen?.().catch(() => {});
+  };
+  const speakPreview = (index: number) => {
+    if (muted || lastSpoken.current === cast[index].name || !window.speechSynthesis)
+      return;
+    lastSpoken.current = cast[index].name;
+    window.speechSynthesis.cancel();
+    const line = new SpeechSynthesisUtterance(cast[index].quote);
+    line.lang = 'pt-BR';
+    line.rate = 0.96;
+    line.pitch = 1;
+    const voice = window.speechSynthesis
+      .getVoices()
+      .find((item) => item.lang.toLowerCase().startsWith('pt-br'));
+    if (voice) line.voice = voice;
+    window.speechSynthesis.speak(line);
   };
   return (
     <main className={`arcade ${playing ? 'is-playing' : ''}`}>
@@ -287,6 +311,11 @@ export default function Home() {
                     className="character-radio"
                     value={String(i)}
                     aria-label={c.name}
+                    onMouseEnter={() => speakPreview(i)}
+                    onMouseLeave={() => {
+                      lastSpoken.current = '';
+                    }}
+                    onFocus={() => speakPreview(i)}
                   />
                   <div className={`portrait portrait-${i}`} />
                   <span className="character-number">0{i + 1}</span>

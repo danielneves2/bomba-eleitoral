@@ -1,5 +1,6 @@
 // Render the generated atlas as cutouts, preserving enclosed gray hair and clothes.
 let atlasPromise;
+let atlasUrl;
 export function loadCharacterAtlas() {
   return atlasPromise ??= new Promise((resolve, reject) => {
     const image = new Image();
@@ -35,8 +36,17 @@ export function loadCharacterAtlas() {
         if (index < width * (height - 1)) add(index + width);
       }
       ctx.putImageData(pixels, 0, 0);
-      document.documentElement.style.setProperty('--character-atlas', `url("${canvas.toDataURL()}")`);
-      resolve(canvas);
+      canvas.toBlob(blob => {
+        if (!blob) {
+          reject(new Error('Não foi possível preparar os personagens.'));
+          return;
+        }
+        if (atlasUrl) URL.revokeObjectURL(atlasUrl);
+        atlasUrl = URL.createObjectURL(blob);
+        document.documentElement.style.setProperty('--character-atlas', `url("${atlasUrl}")`);
+        document.documentElement.classList.add('characters-ready');
+        resolve(canvas);
+      }, 'image/png');
     };
     image.onerror = () => reject(new Error('Não foi possível carregar os personagens. Recarregue a página.'));
     image.src = '/characters-voxel.png';

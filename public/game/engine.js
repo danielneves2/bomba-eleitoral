@@ -1,6 +1,6 @@
 import * as T from '../vendor/three.module.js';
-import { loadCharacterAtlas } from './characters.js?v=3';
-import { Match, SIZE, cell, NAMES } from './core.mjs?v=3';
+import { loadCharacterAtlas } from './characters.js?v=4';
+import { Match, SIZE, cell, NAMES } from './core.mjs?v=4';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,

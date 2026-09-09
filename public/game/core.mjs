@@ -5,6 +5,11 @@ export const QUOTES = [
   'Tá ok?',
   'Eu tô saudando a mandioca',
   'Não renunciarei.',
+  'Faz o M!',
+  'O STF precisa voltar para a casinha',
+  'Imposto é roubo',
+  'Nós vamos virar essa eleição',
+  'Me ajuda aí!',
 ];
 export function rng(seed = 14) {
   return () => {
@@ -74,6 +79,104 @@ export function blastCells(map, x, z, range) {
     }
   return cells;
 }
+export const NAMES = [
+  'Lula',
+  'Bolsonaro',
+  'Dilma',
+  'Temer',
+  'Pablo Marçal',
+  'Renan Santos',
+  'Paulo Kogos',
+  'Boulos',
+  'Datena',
+];
+export const FUSE = 3;
+export const PHYSICS_STEP = 1 / 120;
+const RADIUS = 0.19;
+function obstacleHeight(map, x, z) {
+  const cx = Math.round(x),
+    cz = Math.round(z),
+    v = map[cz]?.[cx];
+  if (v === undefined) return 4;
+  if (v === 1)
+    return cx === 0 || cz === 0 || cx === 14 || cz === 14
+      ? 3.6 / 2.7
+      : 2.65 / 2.7;
+  return v === 2 ? 2.1 / 2.7 : 0;
+}
+function supportHeight(map, x, z) {
+  return Math.max(
+    ...[
+      [0, 0],
+      [RADIUS, 0],
+      [-RADIUS, 0],
+      [0, RADIUS],
+      [0, -RADIUS],
+    ].map(([dx, dz]) => obstacleHeight(map, x + dx, z + dz)),
+  );
+}
+export function launchState(player, heldTime = 0) {
+  const power = Math.min(1, heldTime / 0.95),
+    speed = 4.7 + power * 2.3,
+    flat = Math.cos(player.pitch) * speed;
+  return {
+    x: player.x,
+    z: player.z,
+    y: 0.72,
+    vx: -Math.sin(player.yaw) * flat,
+    vz: -Math.cos(player.yaw) * flat,
+    vy: Math.sin(player.pitch) * speed + 1.65,
+    moving: true,
+    flight: 1,
+  };
+}
+// The prediction and live projectile use this exact integrator and fixed step.
+export function advanceProjectile(b, map, dt) {
+  if (!b.moving) return;
+  b.vy -= 8.5 * dt;
+  const nx = b.x + b.vx * dt,
+    nz = b.z + b.vz * dt,
+    ny = b.y + b.vy * dt;
+  const xTop = supportHeight(map, nx, b.z);
+  if (xTop > 0 && ny - RADIUS < xTop - 0.015 && b.y - RADIUS < xTop - 0.015) {
+    b.vx *= -0.32;
+  } else b.x = nx;
+  const zTop = supportHeight(map, b.x, nz);
+  if (zTop > 0 && ny - RADIUS < zTop - 0.015 && b.y - RADIUS < zTop - 0.015) {
+    b.vz *= -0.32;
+  } else b.z = nz;
+  const top = supportHeight(map, b.x, b.z);
+  if (ny <= top + RADIUS) {
+    b.y = top + RADIUS;
+    b.vy = Math.abs(b.vy) * 0.22;
+    b.vx *= Math.exp(-dt * 12);
+    b.vz *= Math.exp(-dt * 12);
+    if (b.vy < 0.42) b.vy = 0;
+    if (Math.hypot(b.vx, b.vz) < 0.14 && b.vy === 0) {
+      b.vx = 0;
+      b.vz = 0;
+      b.moving = false;
+      b.flight = 0;
+    }
+  } else b.y = ny;
+}
+export function predictThrow(player, map, heldTime = 0, fuse = FUSE) {
+  const b = launchState(player, heldTime),
+    points = [{ x: b.x, y: b.y, z: b.z }];
+  const count = Math.ceil(Math.max(0, fuse) / PHYSICS_STEP);
+  for (let n = 0; n < count; n++) {
+    advanceProjectile(b, map, PHYSICS_STEP);
+    if (n % 4 === 0 || !b.moving) points.push({ x: b.x, y: b.y, z: b.z });
+    if (!b.moving) break;
+  }
+  const end = { x: b.x, y: b.y, z: b.z };
+  points.push(end);
+  return {
+    points,
+    end,
+    airburst: b.y > supportHeight(map, b.x, b.z) + RADIUS + 0.2,
+  };
+}
 export class Match {
   constructor(seed = Date.now()) {
     this.random = rng(seed);
@@ -97,6 +200,16 @@ export class Match {
       turbo: 0,
     };
     this.bombs = [];
+    this.heldBomb = null;
+    this.countdown = 3;
+    this.winner = -1;
+    this.overtime = false;
+    this.overtimeClock = 0;
+    this.damageClock = 0;
+    this.hitMarker = 0;
+    this.physicsAccumulator = 0;
+    this.player.vx = 0;
+    this.player.vz = 0;
     this.fires = [];
     this.items = [];
     this.events = [];
@@ -122,14 +235,17 @@ export class Match {
       [13, 1],
       [7, 7],
       [13, 7],
+      [7, 13],
+      [7, 1],
+      [1, 7],
     ];
-    positions.slice(0, mode === 'treino' ? 3 : 5).forEach(([x, z], i) =>
+    positions.slice(0, mode === 'treino' ? 3 : 8).forEach(([x, z], i) =>
       this.enemies.push({
         id: ++this.serial,
         x,
         z,
         hp: mode === 'treino' ? 1 : 2,
-        skin: (character + 1 + (i % 3)) % 4,
+        skin: (character + 1 + i) % NAMES.length,
         cd: 3 + i * 0.65,
         think: 0,
         target: null,
@@ -172,6 +288,8 @@ export class Match {
       fuse,
       maxFuse: fuse,
       flight: 0,
+      y: 0.23,
+      moving: false,
       sx: x,
       sz: z,
     };
@@ -179,36 +297,80 @@ export class Match {
     this.events.push({ type: 'bomb', bomb: b });
     return b;
   }
-  throwBomb(planted = false) {
+  beginHold() {
     if (
       this.phase !== 'playing' ||
+      this.countdown > 0 ||
+      this.heldBomb ||
       this.cooldown > 0 ||
       this.bombs.filter((b) => b.owner === 'player').length >= 3
     )
       return false;
-    const p = this.player;
-    let tx = Math.round(p.x),
-      tz = Math.round(p.z);
-    if (!planted) {
-      for (let s = 0.5; s <= 3.5; s += 0.18) {
-        const x = Math.round(p.x - Math.sin(p.yaw) * s),
-          z = Math.round(p.z - Math.cos(p.yaw) * s);
-        if (x < 1 || x > 13 || z < 1 || z > 13) break;
-        if (!this.solid(x, z)) {
-          tx = x;
-          tz = z;
+    this.heldBomb = { fuse: FUSE, heldTime: 0 };
+    this.events.push({ type: 'pin' });
+    return true;
+  }
+  releaseBomb(planted = false) {
+    if (this.phase !== 'playing' || !this.heldBomb) return false;
+    const h = this.heldBomb;
+    this.heldBomb = null;
+    const motion = planted
+      ? {
+          x: this.player.x,
+          z: this.player.z,
+          y: 0.23,
+          vx: 0,
+          vy: 0,
+          vz: 0,
+          moving: false,
+          flight: 0,
         }
-      }
-    }
-    const b = this.addBomb(tx, tz);
-    if (!b) return false;
-    if (!planted) {
-      b.flight = 0.48;
-      b.sx = p.x;
-      b.sz = p.z;
-    }
-    this.cooldown = 0.32;
+      : launchState(this.player, h.heldTime);
+    const b = {
+      id: ++this.serial,
+      ...motion,
+      owner: 'player',
+      range: this.range,
+      fuse: h.fuse,
+      maxFuse: FUSE,
+    };
+    this.bombs.push(b);
+    this.cooldown = 0.18;
     this.events.push({ type: 'throw' });
+    return true;
+  }
+  throwBomb(planted = false) {
+    if (!this.heldBomb && !this.beginHold()) return false;
+    return this.releaseBomb(planted);
+  }
+  trajectory() {
+    return this.heldBomb
+      ? predictThrow(
+          this.player,
+          this.map,
+          this.heldBomb.heldTime,
+          this.heldBomb.fuse,
+        )
+      : null;
+  }
+  resolveWinner() {
+    const alive = this.enemies.filter((e) => e.hp > 0);
+    if (this.player.hp > 0 && alive.length === 0) this.winner = this.character;
+    else if (this.player.hp <= 0 && alive.length === 1)
+      this.winner = alive[0].skin;
+    else if (this.player.hp <= 0 && alive.length === 0) this.winner = -2;
+    else return false;
+    this.phase =
+      this.winner === this.character
+        ? 'won'
+        : this.winner === -2
+          ? 'draw'
+          : 'lost';
+    if (this.phase === 'won')
+      this.score +=
+        this.player.hp * 300 + Math.max(0, Math.floor(180 - this.elapsed)) * 5;
+    this.heldBomb = null;
+    this.events.push({ type: 'end', won: this.phase === 'won' });
     return true;
   }
   speak() {
@@ -218,7 +380,13 @@ export class Match {
     this.events.push({ type: 'voice', text: this.quote });
   }
   special() {
-    if (this.phase !== 'playing' || this.specialCharge < 1) return false;
+    if (
+      this.phase !== 'playing' ||
+      this.countdown > 0 ||
+      this.player.hp <= 0 ||
+      this.specialCharge < 1
+    )
+      return false;
     this.specialCharge = 0;
     this.quoteTime = 0;
     this.speak();
@@ -261,6 +429,32 @@ export class Match {
       p.shield = 5;
       this.notice = 'NÃO RENUNCIAREI!';
     }
+    if (this.character === 4) {
+      p.turbo = 5;
+      p.shield = 5;
+      this.range = Math.min(6, this.range + 1);
+      this.notice = 'MENTALIDADE EXPLOSIVA!';
+    }
+    if (this.character === 5) {
+      this.specialCharge = 0;
+      this.cooldown = 0;
+      for (const b of this.bombs)
+        if (b.owner === 'player') b.fuse = Math.min(b.fuse, 0.25);
+      this.notice = 'MISSÃO: DETONAR!';
+    }
+    if (this.character === 6) {
+      p.shield = 8;
+      this.notice = 'PROPRIEDADE PROTEGIDA!';
+    }
+    if (this.character === 7) {
+      p.hp = Math.min(3, p.hp + 1);
+      p.turbo = 4;
+      this.notice = 'VIRADA NA ARENA!';
+    }
+    if (this.character === 8) {
+      this.addBomb(Math.round(p.x), Math.round(p.z), 'special', 7, 0.8);
+      this.notice = 'ME AJUDA AÍ!';
+    }
     this.noticeTime = 2.6;
     this.events.push({ type: 'special' });
     return true;
@@ -288,10 +482,16 @@ export class Match {
       }
       this.fires.push({ id: ++this.serial, x, z, life: 0.72, owner: b.owner });
     }
-    this.events.push({ type: 'explode', x: b.x, z: b.z, cells });
+    this.events.push({
+      type: 'explode',
+      x: b.x,
+      y: b.y || 0.23,
+      z: b.z,
+      cells,
+    });
     for (const other of this.bombs.slice()) {
       if (
-        other.flight <= 0 &&
+        (other.y || 0) < 1.4 &&
         cells.some(([x, z]) => cell(x, z) === cell(other.x, other.z))
       )
         this.explode(other);
@@ -339,8 +539,13 @@ export class Match {
     return null;
   }
   tick(dt, input = {}) {
-    if (this.phase !== 'playing') return;
+    if (!['playing', 'spectating'].includes(this.phase)) return;
     dt = Math.min(dt, 0.05);
+    if (this.countdown > 0) {
+      this.countdown = Math.max(0, this.countdown - dt);
+      return;
+    }
+    this.hitMarker = Math.max(0, this.hitMarker - dt);
     const p = this.player;
     this.elapsed += dt;
     this.cooldown -= dt;
@@ -357,16 +562,53 @@ export class Match {
     const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0),
       side = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const length = Math.hypot(forward, side) || 1,
-      speed = (input.run ? 2.75 : 2.05) * (p.turbo > 0 ? 1.65 : 1) * dt;
-    this.move(
-      p,
-      ((-Math.sin(p.yaw) * forward + Math.cos(p.yaw) * side) / length) * speed,
-      ((-Math.cos(p.yaw) * forward - Math.sin(p.yaw) * side) / length) * speed,
-    );
-    for (const b of this.bombs.slice()) {
-      b.flight = Math.max(0, b.flight - dt);
-      b.fuse -= dt;
-      if (b.fuse <= 0) this.explode(b);
+      speed = (input.run ? 3.3 : 2.5) * (p.turbo > 0 ? 1.5 : 1),
+      blend = 1 - Math.exp(-22 * dt);
+    const active = p.hp > 0 && this.phase === 'playing';
+    p.vx +=
+      (active
+        ? ((-Math.sin(p.yaw) * forward + Math.cos(p.yaw) * side) / length) *
+            speed -
+          p.vx
+        : -p.vx) * blend;
+    p.vz +=
+      (active
+        ? ((-Math.cos(p.yaw) * forward - Math.sin(p.yaw) * side) / length) *
+            speed -
+          p.vz
+        : -p.vz) * blend;
+    if (active) this.move(p, p.vx * dt, p.vz * dt);
+    if (this.heldBomb) {
+      this.heldBomb.heldTime += dt;
+      this.heldBomb.fuse -= dt;
+      if (this.heldBomb.fuse <= 0) {
+        this.heldBomb = null;
+        const b = {
+          id: ++this.serial,
+          x: p.x,
+          z: p.z,
+          y: 0.72,
+          owner: 'player',
+          range: this.range,
+          fuse: 0,
+        };
+        this.bombs.push(b);
+        this.explode(b);
+        p.hp = Math.max(0, p.hp - 2);
+        p.invulnerable = 1.6;
+        this.events.push({ type: 'hurt' });
+        this.notice = 'EXPLODIU NA MÃO!';
+        this.noticeTime = 2;
+      }
+    }
+    this.physicsAccumulator += dt;
+    while (this.physicsAccumulator >= PHYSICS_STEP) {
+      for (const b of this.bombs.slice()) {
+        advanceProjectile(b, this.map, PHYSICS_STEP);
+        b.fuse -= PHYSICS_STEP;
+        if (b.fuse <= 0) this.explode(b);
+      }
+      this.physicsAccumulator -= PHYSICS_STEP;
     }
     for (const f of this.fires) f.life -= dt;
     this.fires = this.fires.filter((f) => f.life > 0);
@@ -379,7 +621,17 @@ export class Match {
       const endangered = hazard.has(cell(e.x, e.z));
       if (e.think <= 0 || !e.target) {
         e.think = 0.24;
-        const goal = [Math.round(p.x), Math.round(p.z)];
+        const targets = [
+          ...(p.hp > 0 ? [p] : []),
+          ...this.enemies.filter((other) => other.id !== e.id && other.hp > 0),
+        ];
+        const victim =
+          targets.sort(
+            (a, b) =>
+              Math.hypot(e.x - a.x, e.z - a.z) -
+              Math.hypot(e.x - b.x, e.z - b.z),
+          )[0] || p;
+        const goal = [Math.round(victim.x), Math.round(victim.z)];
         e.target = this.path(e, goal, hazard, endangered);
         if (!e.target) {
           const possible = [
@@ -408,7 +660,14 @@ export class Match {
           e.walk += dt * 8;
         }
       }
-      const near = Math.hypot(p.x - e.x, p.z - e.z) < 5;
+      const near =
+        (p.hp > 0 && Math.hypot(p.x - e.x, p.z - e.z) < 5) ||
+        this.enemies.some(
+          (other) =>
+            other.id !== e.id &&
+            other.hp > 0 &&
+            Math.hypot(other.x - e.x, other.z - e.z) < 5,
+        );
       const blocked = [
         [1, 0],
         [-1, 0],
@@ -431,7 +690,7 @@ export class Match {
       this.fires.find(
         (f) => Math.abs(f.x - a.x) < 0.58 && Math.abs(f.z - a.z) < 0.58,
       );
-    if (hit(p) && p.invulnerable <= 0 && p.shield <= 0) {
+    if (p.hp > 0 && hit(p) && p.invulnerable <= 0 && p.shield <= 0) {
       p.hp--;
       p.invulnerable = 1.6;
       this.events.push({ type: 'hurt' });
@@ -442,6 +701,8 @@ export class Match {
         e.hp--;
         e.invulnerable = 0.9;
         this.events.push({ type: 'hit', x: e.x, z: e.z });
+        if (fire.owner === 'player' || fire.owner === 'special')
+          this.hitMarker = 0.2;
         if (e.hp <= 0) {
           this.kills++;
           this.score +=
@@ -460,7 +721,11 @@ export class Match {
     }
     for (const item of this.items) item.wait -= dt;
     for (const item of this.items.slice())
-      if (item.wait <= 0 && Math.hypot(item.x - p.x, item.z - p.z) < 0.55) {
+      if (
+        p.hp > 0 &&
+        item.wait <= 0 &&
+        Math.hypot(item.x - p.x, item.z - p.z) < 0.55
+      ) {
         if (item.type === 0) p.hp = Math.min(3, p.hp + 1);
         if (item.type === 1) p.shield = 6;
         if (item.type === 2) this.range = Math.min(6, this.range + 1);
@@ -494,25 +759,58 @@ export class Match {
       }
     }
     this.chaos = Math.min(100, this.chaos + dt * 0.08);
-    if (p.hp <= 0) {
-      this.phase = 'lost';
-      this.events.push({ type: 'end', won: false });
-    } else if (this.enemies.every((e) => e.hp <= 0) || this.elapsed >= 180) {
-      this.phase = 'won';
-      this.score += p.hp * 300 + Math.floor(180 - this.elapsed) * 5;
-      this.events.push({ type: 'end', won: true });
+    if (p.hp <= 0 && this.phase === 'playing') {
+      this.phase = 'spectating';
+      this.heldBomb = null;
+      this.events.push({ type: 'spectate' });
+      this.notice = 'ELIMINADO · A ELEIÇÃO CONTINUA';
+      this.noticeTime = 4;
     }
+    if (this.elapsed >= 180) {
+      if (!this.overtime) {
+        this.overtime = true;
+        this.notice = 'SEGUNDO TURNO · MORTE SÚBITA';
+        this.noticeTime = 4;
+      }
+      this.overtimeClock += dt;
+      this.damageClock += dt;
+      if (this.overtimeClock >= 2) {
+        this.overtimeClock = 0;
+        for (const a of [p, ...this.enemies].filter((a) => a.hp > 0))
+          this.storm.push({
+            id: ++this.serial,
+            x: Math.round(a.x),
+            z: Math.round(a.z),
+            time: 1.6,
+          });
+      }
+      if (this.damageClock >= 10) {
+        this.damageClock = 0;
+        for (const a of [p, ...this.enemies]) if (a.hp > 0) a.hp--;
+      }
+    }
+    this.resolveWinner();
   }
+
   snapshot() {
     return {
       phase: this.phase,
+      countdown: this.countdown,
+      holding: !!this.heldBomb,
+      fuse: this.heldBomb ? Math.max(0, this.heldBomb.fuse) : 0,
+      power: this.heldBomb ? Math.min(1, this.heldBomb.heldTime / 0.95) : 0,
+      winner: this.winner,
+      overtime: this.overtime,
+      hitMarker: this.hitMarker,
       hp: this.player.hp,
       kills: this.kills,
       score: this.score,
       time: Math.max(0, 180 - this.elapsed),
       bombs: Math.max(
         0,
-        3 - this.bombs.filter((b) => b.owner === 'player').length,
+        3 -
+          this.bombs.filter((b) => b.owner === 'player').length -
+          (this.heldBomb ? 1 : 0),
       ),
       special: this.specialCharge,
       chaos: this.chaos,

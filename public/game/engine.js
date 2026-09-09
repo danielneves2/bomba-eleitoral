@@ -1,7 +1,10 @@
 import * as T from '../vendor/three.module.js';
-import { Match, SIZE, cell } from './core.mjs';
+import { Match, SIZE, cell, NAMES } from './core.mjs?v=2';
 const TILE = 2.7,
-  COLORS = [0xef4269, 0x79bc39, 0xe47b36, 0x9561de];
+  COLORS = [
+    0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
+    0xff5848, 0x91b9e5,
+  ];
 export function createGame(canvas, onState, onError) {
   let renderer;
   try {
@@ -11,7 +14,7 @@ export function createGame(canvas, onState, onError) {
       powerPreference: 'high-performance',
     });
   } catch {
-    onError('Ative a aceleração gráfica do navegador para usar o 3D.');
+    onError('Ative a aceleraÃ§Ã£o grÃ¡fica do navegador para usar o 3D.');
     return { destroy() {} };
   }
   renderer.setPixelRatio(1);
@@ -35,6 +38,10 @@ export function createGame(canvas, onState, onError) {
     muted = false,
     drag = null,
     held = false;
+  let sensitivity = 1,
+    pausedPhase = 'playing',
+    nextFuseBeep = 0,
+    arcClock = 0;
   const keys = {},
     listeners = [];
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -151,7 +158,13 @@ export function createGame(canvas, onState, onError) {
         list.length,
       );
       list.forEach((m, i) => {
-        instance.setMatrixAt(i, m.matrixWorld);
+        instance.setMatrixAt(
+          i,
+          new T.Matrix4()
+            .copy(root.matrixWorld)
+            .invert()
+            .multiply(m.matrixWorld),
+        );
         m.parent.remove(m);
       });
       instance.instanceMatrix.needsUpdate = true;
@@ -278,13 +291,14 @@ export function createGame(canvas, onState, onError) {
         mats.trim,
       );
     }
-    const sign = label('✦  BOMBA  ✦', '#ff67b1', 9, 1.5);
+    const sign = label('âœ¦  BOMBA  âœ¦', '#ff67b1', 9, 1.5);
     sign.position.set(center, 13, center - 12);
     staticRoot.add(sign);
   }
   makeEnvironment();
   batchStatic(staticRoot);
-  let atlas = null;
+  let atlas = null,
+    newAtlas = null;
   new T.TextureLoader().load(
     '/portraits.png',
     (tx) => {
@@ -301,13 +315,37 @@ export function createGame(canvas, onState, onError) {
         if (bodies.has(e.id)) addFace(bodies.get(e.id), e.skin);
     },
     undefined,
-    () => onError('Os retratos não carregaram. Recarregue a página.'),
+    () => onError('Os retratos nÃ£o carregaram. Recarregue a pÃ¡gina.'),
+  );
+  new T.TextureLoader().load(
+    '/portraits-new.png',
+    (tx) => {
+      if (dead) {
+        tx.dispose();
+        return;
+      }
+      tx.colorSpace = T.SRGBColorSpace;
+      tx.magFilter = T.NearestFilter;
+      tx.minFilter = T.NearestFilter;
+      newAtlas = tx;
+      textures.push(tx);
+      for (const e of game.enemies)
+        if (bodies.has(e.id)) addFace(bodies.get(e.id), e.skin);
+    },
+    undefined,
+    () => onError('Os novos retratos nÃ£o carregaram. Recarregue a pÃ¡gina.'),
   );
   function addFace(root, skin) {
-    if (!atlas || root.userData.face) return;
-    const tx = atlas.clone();
-    tx.repeat.set(0.5, 0.5);
-    tx.offset.set((skin % 2) * 0.5, skin < 2 ? 0.5 : 0);
+    const source = skin < 4 ? atlas : newAtlas;
+    if (!source || root.userData.face) return;
+    const tx = source.clone();
+    const index = skin < 4 ? skin : skin - 4,
+      cols = skin < 4 ? 2 : 3;
+    tx.repeat.set(1 / cols, 0.5);
+    tx.offset.set(
+      (index % cols) / cols,
+      Math.floor(index / cols) === 0 ? 0.5 : 0,
+    );
     tx.needsUpdate = true;
     textures.push(tx);
     const mat = new T.MeshBasicMaterial({ map: tx });
@@ -338,7 +376,7 @@ export function createGame(canvas, onState, onError) {
       0,
       2.3,
       0,
-      e.skin === 0 || e.skin === 3 ? mats.white : mats.dark,
+      e.skin === 0 || e.skin === 3 || e.skin === 8 ? mats.white : mats.dark,
     );
     addFace(root, e.skin);
     const ringGeo = new T.RingGeometry(0.48, 0.57, 16);
@@ -352,15 +390,11 @@ export function createGame(canvas, onState, onError) {
       0,
     );
     ring.rotation.x = -Math.PI / 2;
-    const name = label(
-      ['LULA', 'BOLSONARO', 'DILMA', 'TEMER'][e.skin],
-      '#ffffff',
-      1.8,
-      0.28,
-    );
+    const name = label(NAMES[e.skin].toUpperCase(), '#ffffff', 1.8, 0.28);
     name.position.y = 2.65;
     root.add(name);
     root.userData.name = name;
+    batchStatic(root);
     bodies.set(e.id, root);
   }
   function makeCrate(x, z) {
@@ -376,6 +410,7 @@ export function createGame(canvas, onState, onError) {
     const a = label('?', '#ffc578', 0.95, 0.5);
     a.position.set(0, 1.15, 1.2);
     g.add(a);
+    batchStatic(g);
     crates.set(cell(x, z), g);
   }
   const walls = new T.Group();
@@ -413,11 +448,11 @@ export function createGame(canvas, onState, onError) {
     for (const e of game.enemies) makeEnemy(e);
     batchStatic(walls);
   }
-  function bombModel() {
+  const bombGeometry = new T.SphereGeometry(0.55, 10, 8);
+  geometries.push(bombGeometry);
+  function bombModel(withCounter = false) {
     const root = new T.Group();
-    const geo = new T.SphereGeometry(0.55, 8, 6);
-    geometries.push(geo);
-    mesh(root, geo, mats.bomb);
+    mesh(root, bombGeometry, mats.bomb);
     box(root, 0.22, 0.25, 0.22, 0, 0.58, 0, mats.trim);
     box(root, 0.07, 0.23, 0.07, 0.07, 0.78, 0, mats.yellow);
     const spark = mesh(root, octGeometry, mats.core, 0.07, 0.95, 0);
@@ -425,7 +460,106 @@ export function createGame(canvas, onState, onError) {
     root.userData.spark = spark;
     const stripe = mesh(root, octGeometry, mats.red, 0, 0.05, 0.54);
     stripe.scale.set(0.15, 0.15, 0.04);
+    if (withCounter) {
+      const c = document.createElement('canvas');
+      c.width = 128;
+      c.height = 64;
+      const tx = new T.CanvasTexture(c);
+      tx.magFilter = T.NearestFilter;
+      textures.push(tx);
+      const mat = new T.SpriteMaterial({ map: tx, depthTest: false });
+      materials.push(mat);
+      const badge = new T.Sprite(mat);
+      badge.position.y = 1.3;
+      badge.scale.set(1.25, 0.625, 1);
+      root.add(badge);
+      root.userData.counter = { c, tx, last: '' };
+    }
     return root;
+  }
+  function updateCounter(g, fuse) {
+    const d = g.userData.counter;
+    if (!d) return;
+    const value = Math.max(0, fuse).toFixed(1);
+    if (value === d.last) return;
+    d.last = value;
+    const ctx = d.c.getContext('2d');
+    ctx.clearRect(0, 0, 128, 64);
+    ctx.fillStyle = fuse < 1 ? '#ff3454' : '#181124dd';
+    ctx.fillRect(0, 0, 128, 64);
+    ctx.fillStyle = fuse < 1 ? '#ffffff' : '#d8ff48';
+    ctx.font = 'bold 42px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(value, 64, 46);
+    d.tx.needsUpdate = true;
+  }
+  const aimRoot = new T.Group();
+  scene.add(aimRoot);
+  aimRoot.visible = false;
+  const aimGeometry = new T.BufferGeometry();
+  aimGeometry.setAttribute(
+    'position',
+    new T.BufferAttribute(new Float32Array(512 * 3), 3),
+  );
+  geometries.push(aimGeometry);
+  const aimMaterial = new T.LineBasicMaterial({
+    color: 0xd8ff48,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: true,
+  });
+  materials.push(aimMaterial);
+  const aimLine = new T.Line(aimGeometry, aimMaterial);
+  aimLine.frustumCulled = false;
+  aimRoot.add(aimLine);
+  const aimArrow = new T.ArrowHelper(
+    new T.Vector3(0, -1, 0),
+    new T.Vector3(),
+    0.9,
+    0xd8ff48,
+    0.6,
+    0.35,
+  );
+  aimRoot.add(aimArrow);
+  const aimGeo = new T.RingGeometry(0.32, 0.48, 24);
+  geometries.push(aimGeo);
+  const targetMat = new T.MeshBasicMaterial({
+    color: 0xd8ff48,
+    side: T.DoubleSide,
+  });
+  materials.push(targetMat);
+  const aimTarget = mesh(aimRoot, aimGeo, targetMat);
+  aimTarget.rotation.x = -Math.PI / 2;
+  function updateAim(dt) {
+    aimRoot.visible = game.phase === 'playing' && !!game.heldBomb;
+    if (!aimRoot.visible) return;
+    arcClock += dt;
+    if (arcClock < 1 / 60) return;
+    arcClock = 0;
+    const prediction = game.trajectory();
+    if (!prediction) return;
+    const points = prediction.points,
+      pos = aimGeometry.attributes.position;
+    for (let i = 0; i < points.length; i++)
+      pos.setXYZ(i, points[i].x * TILE, points[i].y * TILE, points[i].z * TILE);
+    aimGeometry.setDrawRange(0, points.length);
+    pos.needsUpdate = true;
+    const end = points[points.length - 1],
+      prev = points[Math.max(0, points.length - 3)];
+    const direction = new T.Vector3(
+      end.x - prev.x,
+      end.y - prev.y,
+      end.z - prev.z,
+    );
+    if (direction.lengthSq() < 0.00001) direction.set(0, -1, 0);
+    direction.normalize();
+    aimArrow.position.set(end.x * TILE, end.y * TILE, end.z * TILE);
+    aimArrow.setDirection(direction);
+    const color = game.heldBomb.fuse < 1 ? 0xff4265 : 0xd8ff48;
+    aimArrow.setColor(color);
+    aimMaterial.color.setHex(color);
+    targetMat.color.setHex(color);
+    aimTarget.position.set(end.x * TILE, end.y * TILE - 0.45, end.z * TILE);
   }
   const hand = new T.Group();
   camera.add(hand);
@@ -534,13 +668,21 @@ export function createGame(canvas, onState, onError) {
   function events() {
     for (const e of game.events.splice(0)) {
       if (e.type === 'reset') continue;
+      if (e.type === 'pin') {
+        tone(1400, 0.07, 'triangle', 0.14);
+        nextFuseBeep = 0;
+      }
+      if (e.type === 'spectate') {
+        unlock();
+        held = false;
+      }
       if (e.type === 'throw') {
         kick = 0.4;
         tone(440, 0.16, 'triangle', 0.3, 0, 140);
       }
       if (e.type === 'explode') {
-        burst(e.x * TILE, 0.5, e.z * TILE, 30);
-        shake = reduced ? 0 : 0.26;
+        burst(e.x * TILE, (e.y || 0.23) * TILE, e.z * TILE, 30);
+        shake = reduced ? 0 : 0.075;
         flash.position.set(e.x * TILE, 2, e.z * TILE);
         flash.intensity = 35;
         noise(0.34);
@@ -573,7 +715,7 @@ export function createGame(canvas, onState, onError) {
       if (e.type === 'hit')
         burst(e.x * TILE, 1.4, e.z * TILE, 8, [mats.white, mats.pink]);
       if (e.type === 'hurt') {
-        shake = reduced ? 0 : 0.45;
+        shake = reduced ? 0 : 0.11;
         tone(180, 0.4, 'sawtooth', 0.23, 0, 50);
       }
       if (e.type === 'pickup') {
@@ -604,6 +746,7 @@ export function createGame(canvas, onState, onError) {
     for (const e of game.enemies) {
       const g = bodies.get(e.id);
       if (!g) continue;
+      if(e.hp<=0){dynamic.remove(g);bodies.delete(e.id);continue;}
       g.position.set(e.x * TILE, Math.abs(Math.sin(e.walk)) * 0.08, e.z * TILE);
       g.rotation.y = Math.atan2(game.player.x - e.x, game.player.z - e.z);
       g.visible = e.invulnerable <= 0 || Math.sin(clock * 30) > 0;
@@ -612,22 +755,24 @@ export function createGame(canvas, onState, onError) {
     for (const [id, g] of bombs)
       if (!active.has(id)) {
         dynamic.remove(g);
+        const counter = g.userData.counter;
+        if (counter) {
+          counter.tx.dispose();
+          const idx = textures.indexOf(counter.tx);
+          if (idx >= 0) textures.splice(idx, 1);
+        }
         bombs.delete(id);
       }
     for (const b of game.bombs) {
       let g = bombs.get(b.id);
       if (!g) {
-        g = bombModel();
+        g = bombModel(true);
         dynamic.add(g);
         bombs.set(b.id, g);
       }
-      const flight = b.flight / 0.48,
-        t = 1 - flight;
-      g.position.set(
-        (b.sx * flight + b.x * t) * TILE,
-        0.62 + (b.flight > 0 ? Math.sin(t * Math.PI) * 4 + flight : 0),
-        (b.sz * flight + b.z * t) * TILE,
-      );
+      g.position.set(b.x * TILE, (b.y ?? 0.23) * TILE, b.z * TILE);
+      updateCounter(g, b.fuse);
+      if (b.moving) g.children[0].rotation.z += dt * 3;
       const pulse = 1 + Math.sin(clock * (b.fuse < 1 ? 28 : 12)) * 0.055;
       g.scale.setScalar(pulse);
       g.userData.spark.scale.setScalar(0.1 + Math.random() * 0.08);
@@ -784,15 +929,20 @@ export function createGame(canvas, onState, onError) {
   function lock() {
     if (matchMedia('(pointer: coarse)').matches) return;
     try {
-      const promise = canvas.requestPointerLock?.();
-      promise?.catch?.(() => {});
+      const promise = canvas.requestPointerLock?.({ unadjustedMovement: true });
+      promise?.catch?.(() => {
+        try {
+          canvas.requestPointerLock?.()?.catch?.(() => {});
+        } catch {}
+      });
     } catch {}
   }
   function unlock() {
     if (document.pointerLockElement === canvas) document.exitPointerLock();
   }
   function pause() {
-    if (game.phase !== 'playing') return;
+    if (!['playing', 'spectating'].includes(game.phase)) return;
+    pausedPhase = game.phase;
     game.phase = 'paused';
     held = false;
     Object.keys(keys).forEach((k) => delete keys[k]);
@@ -802,9 +952,9 @@ export function createGame(canvas, onState, onError) {
   }
   function resume() {
     if (game.phase !== 'paused') return;
-    game.phase = 'playing';
+    game.phase = pausedPhase;
     initAudio();
-    lock();
+    if (game.phase === 'playing') lock();
     emit();
   }
   function bind(target, type, fn, options) {
@@ -832,7 +982,7 @@ export function createGame(canvas, onState, onError) {
     )
       e.preventDefault();
     if (e.code === 'Escape' || e.code === 'KeyP') {
-      if (game.phase === 'playing') pause();
+      if (['playing', 'spectating'].includes(game.phase)) pause();
       else if (game.phase === 'paused') resume();
       return;
     }
@@ -848,10 +998,10 @@ export function createGame(canvas, onState, onError) {
   bind(document, 'mousemove', (e) => {
     if (game.phase !== 'playing') return;
     if (document.pointerLockElement === canvas || held) {
-      game.player.yaw -= e.movementX * 0.0023;
+      game.player.yaw -= e.movementX * 0.0018 * sensitivity;
       game.player.pitch = Math.max(
-        -1.02,
-        Math.min(1.02, game.player.pitch - e.movementY * 0.002),
+        -1.35,
+        Math.min(1.35, game.player.pitch - e.movementY * 0.0018 * sensitivity),
       );
     }
   });
@@ -863,7 +1013,7 @@ export function createGame(canvas, onState, onError) {
     } else if (e.button === 0) {
       held = true;
       lock();
-      game.throwBomb(false);
+      game.beginHold();
     }
   });
   bind(canvas, 'pointermove', (e) => {
@@ -876,11 +1026,13 @@ export function createGame(canvas, onState, onError) {
     drag.x = e.clientX;
     drag.y = e.clientY;
   });
-  bind(window, 'pointerup', () => {
+  bind(window, 'pointerup', (e) => {
+    if (e.button === 0 && held) game.releaseBomb();
     held = false;
     drag = null;
   });
   bind(window, 'pointercancel', () => {
+    if (held) game.releaseBomb(true);
     held = false;
     drag = null;
     Object.keys(keys).forEach((k) => delete keys[k]);
@@ -902,7 +1054,7 @@ export function createGame(canvas, onState, onError) {
     e.preventDefault();
     pause();
     onError(
-      'A conexão com o 3D foi interrompida. Recarregue a página para continuar.',
+      'A conexÃ£o com o 3D foi interrompida. Recarregue a pÃ¡gina para continuar.',
     );
   });
   function loop(now) {
@@ -910,7 +1062,7 @@ export function createGame(canvas, onState, onError) {
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
     clock += dt;
-    if (game.phase === 'playing') {
+    if (['playing', 'spectating'].includes(game.phase)) {
       const p = game.player;
       if (keys.ArrowLeft) p.yaw += dt * 1.7;
       if (keys.ArrowRight) p.yaw -= dt * 1.7;
@@ -927,32 +1079,50 @@ export function createGame(canvas, onState, onError) {
       const bob = reduced
         ? 0
         : moving
-          ? Math.sin(clock * 11) * 0.07
-          : Math.sin(clock * 2) * 0.015;
+          ? Math.sin(clock * 11) * 0.018
+          : Math.sin(clock * 2) * 0.004;
       shake = Math.max(0, shake - dt);
-      camera.position.set(
-        p.x * TILE + (Math.random() - 0.5) * shake,
-        1.8 + bob + (Math.random() - 0.5) * shake,
-        p.z * TILE,
-      );
-      camera.rotation.set(
-        p.pitch,
-        p.yaw,
-        reduced ? 0 : Math.sin(clock * 14) * shake * 0.03,
-        'YXZ',
-      );
-      camera.fov = 73 + (p.turbo > 0 ? 10 : keys.ShiftLeft ? 4 : 0);
+      if (game.phase === 'playing') {
+        camera.position.set(
+          p.x * TILE + (Math.random() - 0.5) * shake,
+          1.8 + bob + (Math.random() - 0.5) * shake,
+          p.z * TILE,
+        );
+        camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
+      }
+      const fov =
+        80 + (p.turbo > 0 ? 9 : keys.ShiftLeft || keys.ShiftRight ? 4 : 0);
+      camera.fov += (fov - camera.fov) * (1 - Math.exp(-10 * dt));
       camera.updateProjectionMatrix();
-      hand.visible = true;
+      hand.visible = game.phase === 'playing';
+      if (game.phase === 'spectating') {
+        const e = game.enemies.find((e) => e.hp > 0);
+        if (e) {
+          camera.position.lerp(
+            new T.Vector3(e.x * TILE + 7, 9, e.z * TILE + 7),
+            1 - Math.exp(-3 * dt),
+          );
+          camera.lookAt(e.x * TILE, 1, e.z * TILE);
+        }
+      }
       kick = Math.max(0, kick - dt * 2);
       hand.position.set(
         Math.sin(clock * 5) * 0.008,
         bob * 0.5 - kick * 0.5,
         kick * 0.2,
       );
-      hand.rotation.x = -kick * 2;
+      hand.rotation.x =
+        -kick * 2 -
+        (game.heldBomb?.heldTime
+          ? Math.min(0.25, game.heldBomb.heldTime * 0.25)
+          : 0);
       heldBomb.visible =
         game.bombs.filter((b) => b.owner === 'player').length < 3;
+      heldBomb.userData.spark.visible = !!game.heldBomb;
+      if (game.heldBomb && clock > nextFuseBeep) {
+        tone(game.heldBomb.fuse < 1 ? 1400 : 900, 0.045, 'square', 0.12);
+        nextFuseBeep = clock + (game.heldBomb.fuse < 1 ? 0.13 : 0.45);
+      }
       if (audio && audio.currentTime > nextBeat) {
         nextBeat = audio.currentTime + 0.19;
         const notes = [
@@ -974,8 +1144,9 @@ export function createGame(canvas, onState, onError) {
       camera.lookAt(center - 2, 1.5, center);
       syncWorld(dt);
     } else hand.visible = false;
+    updateAim(dt);
     hudClock += dt;
-    if (hudClock > 0.1) {
+    if (hudClock > 0.05) {
       hudClock = 0;
       emit();
     }
@@ -987,6 +1158,9 @@ export function createGame(canvas, onState, onError) {
   return {
     start(character, mode) {
       game.reset(character, mode);
+      for (const key of Object.keys(keys)) delete keys[key];
+      held = false;
+      drag = null;
       rebuild();
       kick = 0;
       shake = 0;
@@ -1011,6 +1185,15 @@ export function createGame(canvas, onState, onError) {
     },
     throwBomb() {
       game.throwBomb(false);
+    },
+    beginHold() {
+      game.beginHold();
+    },
+    releaseBomb() {
+      game.releaseBomb();
+    },
+    sensitivity(value) {
+      sensitivity = Math.max(0.25, Math.min(2.5, value));
     },
     key(code, down) {
       keys[code] = down;

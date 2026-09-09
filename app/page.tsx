@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { Slider } from '@/components/ui/slider';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Bomb,
@@ -58,9 +59,66 @@ const cast = [
     source:
       'https://www.biblioteca.presidencia.gov.br/presidencia/ex-presidentes/michel-temer/discursos-do-presidente-da-republica/declaracao-a-imprensa-do-presidente-da-republica-michel-temer-brasilia-df-1',
   },
+  {
+    name: 'Pablo Marçal',
+    title: 'O estrategista',
+    color: '#66b5ff',
+    quote: 'Faz o M!',
+    special: 'Mentalidade explosiva',
+    desc: 'Turbo, escudo e mais alcance.',
+    source:
+      'https://www.gazetasp.com.br/politica/pablo-marcal-diz-apenas-faz-o-m-ao-chegar-ao-debate-da-gazeta/1142743/',
+  },
+  {
+    name: 'Renan Santos',
+    title: 'O articulador',
+    color: '#e9b54d',
+    quote: 'O STF precisa voltar para a casinha',
+    special: 'Missão: detonar',
+    desc: 'Detona suas bombas já lançadas.',
+    source:
+      'https://www.gazetadopovo.com.br/vozes/entrelinhas/o-stf-precisa-voltar-para-a-casinha-afirma-renan-santos/',
+  },
+  {
+    name: 'Paulo Kogos',
+    title: 'O cavaleiro',
+    color: '#eded9d',
+    quote: 'Imposto é roubo',
+    special: 'Propriedade protegida',
+    desc: 'Oito segundos de escudo.',
+    source:
+      'https://mises.org.br/artigos/1563/impostoerouboestadoequadrilhaeoutrasconsideracoes/',
+  },
+  {
+    name: 'Boulos',
+    title: 'O mobilizador',
+    color: '#ff5848',
+    quote: 'Nós vamos virar essa eleição',
+    special: 'Virada na arena',
+    desc: 'Recupera vida e ativa o turbo.',
+    source:
+      'https://www.metropoles.com/sao-paulo/nos-vamos-virar-essa-eleicao-diz-boulos-em-ultimo-dia-de-campanha',
+  },
+  {
+    name: 'Datena',
+    title: 'O apresentador',
+    color: '#91b9e5',
+    quote: 'Me ajuda aí!',
+    special: 'Plantão explosivo',
+    desc: 'Superbomba de alcance sete.',
+    source:
+      'https://tvefamosos.uol.com.br/colunas/flavio-ricco/2015/02/18/me-ajuda-ai---record-tambem-registrou-em-nome-dela-bordao-usado-pelo-datena.htm',
+  },
 ];
 const initial = {
   phase: 'menu',
+  countdown: 0,
+  holding: false,
+  fuse: 0,
+  power: 0,
+  winner: -1,
+  overtime: false,
+  hitMarker: 0,
   hp: 3,
   kills: 0,
   score: 0,
@@ -83,6 +141,9 @@ type GameApi = {
   menu: () => void;
   special: () => void;
   throwBomb: () => void;
+  beginHold: () => void;
+  releaseBomb: () => void;
+  sensitivity: (value: number) => void;
   key: (code: string, down: boolean) => void;
   mute: (value: boolean) => void;
   destroy: () => void;
@@ -103,12 +164,13 @@ export default function Home() {
     [error, setError] = useState(''),
     [muted, setMuted] = useState(false),
     [help, setHelp] = useState(false),
-    [mode, setMode] = useState('caos');
+    [mode, setMode] = useState('caos'),
+    [sensitivity, setSensitivity] = useState(1);
   useEffect(() => {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js';
+    script.src = '/game/boot.js?v=2';
     script.onload = () => {
       if (disposed || !canvas.current) return;
       api.current = (window as unknown as GameWindow).createBombaGame(
@@ -207,7 +269,7 @@ export default function Home() {
             </p>
             <div className="choose-heading">
               <span>01 / ESCOLHA SEU PERSONAGEM</span>
-              <small>4 figuras. Nenhum juízo.</small>
+              <small>9 figuras. Uma faixa presidencial.</small>
             </div>
             <RadioGroup
               className="cast"
@@ -328,7 +390,9 @@ export default function Home() {
               </div>
             </div>
             <div className="timer">
-              <small>FIM DO ESPETÁCULO</small>
+              <small>
+                {state.overtime ? 'MORTE SÚBITA' : 'TEMPO DO DEBATE'}
+              </small>
               <strong>
                 {Math.floor(state.time / 60)
                   .toString()
@@ -342,10 +406,12 @@ export default function Home() {
             <div className="score">
               <small>PONTUAÇÃO</small>
               <strong>{state.score.toString().padStart(6, '0')}</strong>
-              <span>{state.enemies} RIVAIS NA ARENA</span>
+              <span>{state.enemies} RIVAIS NA ARENA · BOTS</span>
             </div>
           </div>
-          <div className="crosshair">
+          <div
+            className={`crosshair ${state.hitMarker > 0 ? 'hit-confirmed' : ''}`}
+          >
             <span />
             <span />
           </div>
@@ -368,7 +434,7 @@ export default function Home() {
                   {state.bombs} <span>/ 3</span>
                 </strong>
               </div>
-              <kbd>CLIQUE</kbd>
+              <kbd>SEGURE</kbd>
             </div>
             <div className="chaos-meter">
               <div>
@@ -403,8 +469,8 @@ export default function Home() {
             </button>
           </div>
           <div className="controls-strip">
-            W A S D <span>MOVER</span> · MOUSE <span>MIRAR</span> · CLIQUE{' '}
-            <span>ARREMESSAR</span> · ESPAÇO <span>PLANTAR</span> · SHIFT{' '}
+            W A S D <span>MOVER</span> · MOUSE <span>MIRAR</span> · SEGURE /
+            SOLTE <span>ARREMESSAR</span> · ESPAÇO <span>PLANTAR</span> · SHIFT{' '}
             <span>CORRER</span> · ESC <span>PAUSA</span>
           </div>
           <div className="touch-controls">
@@ -431,13 +497,53 @@ export default function Home() {
             </div>
             <button
               className="touch-bomb"
-              onPointerDown={() => api.current?.throwBomb()}
-              aria-label="Arremessar bomba"
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                api.current?.beginHold();
+              }}
+              onPointerUp={() => api.current?.releaseBomb()}
+              onPointerCancel={() => api.current?.releaseBomb()}
+              aria-label="Segurar para mirar e soltar para arremessar bomba"
             >
               <Bomb />
             </button>
           </div>
         </>
+      )}
+      {!menu && state.countdown > 0 && (
+        <div className="round-countdown">
+          <small>PREPARE O SEU MANDATO</small>
+          <strong>{Math.ceil(state.countdown)}</strong>
+          <span>Seja o último sobrevivente.</span>
+        </div>
+      )}
+      {playing && state.holding && (
+        <div className={`cook-hud ${state.fuse < 1 ? 'critical' : ''}`}>
+          <div>
+            <Bomb size={20} />
+            <strong>
+              {state.fuse.toFixed(2)}
+              <small>s</small>
+            </strong>
+            <span>{state.fuse < 1 ? 'SOLTE AGORA!' : 'PAVIO ACESO'}</span>
+          </div>
+          <div className="fuse-track">
+            <i style={{ width: `${(state.fuse / 3) * 100}%` }} />
+          </div>
+          <p>SOLTE PARA ARREMESSAR · MOUSE PARA CURVAR</p>
+          <span className="throw-power">
+            FORÇA {Math.round(state.power * 100)}%
+          </span>
+        </div>
+      )}
+      {state.phase === 'spectating' && (
+        <div className="spectator-banner">
+          <strong>VOCÊ FOI ELIMINADO</strong>
+          <span>
+            Acompanhe a disputa pela faixa · {state.enemies} sobreviventes
+          </span>
+          <button onClick={() => api.current?.menu()}>Voltar à seleção</button>
+        </div>
       )}
       {state.phase === 'paused' && (
         <div className="modal-shade">
@@ -449,6 +555,25 @@ export default function Home() {
               DO CIRCO.
             </h2>
             <p>Retome a arena para continuar a partida.</p>
+            <div className="aim-settings">
+              <label id="sensitivity-label">
+                Sensibilidade do mouse{' '}
+                <strong>{sensitivity.toFixed(2)}×</strong>
+              </label>
+              <Slider
+                aria-labelledby="sensitivity-label"
+                min={0.25}
+                max={2.5}
+                step={0.05}
+                value={[sensitivity]}
+                onValueChange={(v) => {
+                  const value = Array.isArray(v) ? v[0] : v;
+                  setSensitivity(value);
+                  api.current?.sensitivity(value);
+                }}
+              />
+              <small>Movimento direto · câmera sem balanço lateral</small>
+            </div>
             <button
               className="play-button"
               onClick={() => api.current?.resume()}
@@ -461,18 +586,33 @@ export default function Home() {
           </section>
         </div>
       )}
-      {(state.phase === 'won' || state.phase === 'lost') && (
+      {(state.phase === 'won' ||
+        state.phase === 'lost' ||
+        state.phase === 'draw') && (
         <div className="modal-shade">
           <section className="game-modal result">
             <Trophy className="trophy" />
             <small>
-              {state.phase === 'won' ? 'O ÚLTIMO A RIR' : 'FIM DE ESPETÁCULO'}
+              {state.winner >= 0 ? 'RESULTADO DA ELEIÇÃO' : 'SEM SOBREVIVENTES'}
             </small>
-            <h2>{state.phase === 'won' ? 'O CIRCO É SEU.' : 'DEU RUIM.'}</h2>
+            <h2>
+              {state.winner >= 0
+                ? `${cast[state.winner]?.name.toUpperCase()} ELEITO!`
+                : 'ELEIÇÃO ANULADA!'}
+            </h2>
+            {state.winner >= 0 && (
+              <div
+                className={`winner-portrait portrait portrait-${state.winner}`}
+              >
+                <span className="presidential-sash">ELEITO</span>
+              </div>
+            )}
             <p>
               {state.phase === 'won'
-                ? 'Você sobreviveu ao debate mais explosivo do país.'
-                : 'Até o caos merece uma segunda tentativa.'}
+                ? 'A faixa é sua. Último sobrevivente, presidente do circo!'
+                : state.winner >= 0
+                  ? 'Seu rival ficou com a faixa. O próximo mandato pode ser seu.'
+                  : 'Todo mundo explodiu. Ninguém leva a faixa desta vez.'}
             </p>
             <div className="result-stats">
               <div>
@@ -510,14 +650,16 @@ export default function Home() {
               ARREMESSE. CORRA.
             </h2>
             <p>
-              Elimine os rivais e sobreviva por até 3 minutos. A explosão se
-              espalha em cruz. Paredes param o fogo; caixotes viram confete.
+              Seja o último sobrevivente para ser eleito. Após 3 minutos, começa
+              a morte súbita. A explosão se espalha em cruz. Paredes param o
+              fogo; caixotes viram confete.
             </p>
             <div className="key-guide">
               {[
                 ['W A S D', 'Mover'],
                 ['MOUSE', 'Olhar ao redor'],
-                ['CLIQUE', 'Arremessar bomba'],
+                ['SEGURE', 'Acender e mirar a bomba'],
+                ['SOLTE', 'Arremessar com o pavio restante'],
                 ['ESPAÇO', 'Plantar bomba'],
                 ['SHIFT', 'Correr'],
                 ['E', 'Especial'],
@@ -531,10 +673,32 @@ export default function Home() {
               ))}
             </div>
             <p className="hint">
+              O pavio dura 3 segundos desde o primeiro clique. Segurar não
+              reinicia a contagem: a bomba explode na sua mão! A seta prevê a
+              curva e os ricochetes. Mire para cima para passar sobre os blocos.
               Suas bombas também machucam. Saia da cruz! Pegue cristais para
               recuperar vida, escudo e alcance. No celular, arraste o lado
               direito para mirar.
             </p>
+            <div className="aim-settings">
+              <label id="sensitivity-label">
+                Sensibilidade do mouse{' '}
+                <strong>{sensitivity.toFixed(2)}×</strong>
+              </label>
+              <Slider
+                aria-labelledby="sensitivity-label"
+                min={0.25}
+                max={2.5}
+                step={0.05}
+                value={[sensitivity]}
+                onValueChange={(v) => {
+                  const value = Array.isArray(v) ? v[0] : v;
+                  setSensitivity(value);
+                  api.current?.sensitivity(value);
+                }}
+              />
+              <small>Movimento direto · câmera sem balanço lateral</small>
+            </div>
             <div className="credits">
               <strong>Uma sátira em forma de fliperama.</strong>
               <p>

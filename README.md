@@ -11,7 +11,7 @@ Escolha entre nove personagens: Lula, Bolsonaro, Dilma, Temer, Pablo Marçal, Re
 - Ajuste a sensibilidade do mouse na pausa ou nas instruções.
 - No celular: direcional à esquerda, arraste a arena para mirar e segure o botão de bomba para mirar e solte para arremessar.
 
-Falas históricas curtas, com fontes acessíveis nos créditos. Áudio por síntese de voz do navegador, sem imitação de vozes reais. Retratos gerados por IA. Personagens e habilidades são sátira fictícia, sem afiliação política.
+Falas históricas curtas, com fontes acessíveis nos créditos. Áudio por síntese de voz do navegador, sem imitação de vozes reais. Personagens caricatos de corpo inteiro, com estética voxel inspirada na referência fornecida, gerados por IA. A arena 3D usa sprites que acompanham a câmera, com animação de passos e sombra no chão. Personagens e habilidades são sátira fictícia, sem afiliação política.
 
 ## Desenvolvimento
 

@@ -1,5 +1,6 @@
 import * as T from '../vendor/three.module.js';
-import { Match, SIZE, cell, NAMES } from './core.mjs?v=2';
+import { loadCharacterAtlas } from './characters.js?v=3';
+import { Match, SIZE, cell, NAMES } from './core.mjs?v=3';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -14,7 +15,7 @@ export function createGame(canvas, onState, onError) {
       powerPreference: 'high-performance',
     });
   } catch {
-    onError('Ative a aceleraÃ§Ã£o grÃ¡fica do navegador para usar o 3D.');
+    onError('Ative a aceleração gráfica do navegador para usar o 3D.');
     return { destroy() {} };
   }
   renderer.setPixelRatio(1);
@@ -291,111 +292,42 @@ export function createGame(canvas, onState, onError) {
         mats.trim,
       );
     }
-    const sign = label('âœ¦  BOMBA  âœ¦', '#ff67b1', 9, 1.5);
+    const sign = label('✦  BOMBA  ✦', '#ff67b1', 9, 1.5);
     sign.position.set(center, 13, center - 12);
     staticRoot.add(sign);
   }
   makeEnvironment();
   batchStatic(staticRoot);
-  let atlas = null,
-    newAtlas = null;
-  new T.TextureLoader().load(
-    '/portraits.png',
-    (tx) => {
-      if (dead) {
-        tx.dispose();
-        return;
-      }
-      tx.colorSpace = T.SRGBColorSpace;
-      tx.magFilter = T.NearestFilter;
-      tx.minFilter = T.NearestFilter;
-      atlas = tx;
-      textures.push(tx);
-      for (const e of game.enemies)
-        if (bodies.has(e.id)) addFace(bodies.get(e.id), e.skin);
-    },
-    undefined,
-    () => onError('Os retratos nÃ£o carregaram. Recarregue a pÃ¡gina.'),
-  );
-  new T.TextureLoader().load(
-    '/portraits-new.png',
-    (tx) => {
-      if (dead) {
-        tx.dispose();
-        return;
-      }
-      tx.colorSpace = T.SRGBColorSpace;
-      tx.magFilter = T.NearestFilter;
-      tx.minFilter = T.NearestFilter;
-      newAtlas = tx;
-      textures.push(tx);
-      for (const e of game.enemies)
-        if (bodies.has(e.id)) addFace(bodies.get(e.id), e.skin);
-    },
-    undefined,
-    () => onError('Os novos retratos nÃ£o carregaram. Recarregue a pÃ¡gina.'),
-  );
-  function addFace(root, skin) {
-    const source = skin < 4 ? atlas : newAtlas;
-    if (!source || root.userData.face) return;
-    const tx = source.clone();
-    const index = skin < 4 ? skin : skin - 4,
-      cols = skin < 4 ? 2 : 3;
-    tx.repeat.set(1 / cols, 0.5);
-    tx.offset.set(
-      (index % cols) / cols,
-      Math.floor(index / cols) === 0 ? 0.5 : 0,
-    );
-    tx.needsUpdate = true;
-    textures.push(tx);
-    const mat = new T.MeshBasicMaterial({ map: tx });
-    materials.push(mat);
-    const geo = new T.PlaneGeometry(0.97, 0.97);
-    geometries.push(geo);
-    const f = mesh(root, geo, mat, 0, 1.86, 0.53);
-    root.userData.face = f;
+  // Detailed full-body voxel sprites share one atlas in the 3D arena.
+  // Alpha testing keeps silhouettes crisp and lets bombs remain visible through empty pixels.
+  let characterAtlas = null;
+  const characterMaterials = new Map();
+  const characterGeometry = new T.PlaneGeometry(2.7, 2.7);
+  const characterShadowGeometry = new T.CircleGeometry(.66, 24);
+  const characterShadowMaterial = new T.MeshBasicMaterial({color:0x090714,transparent:true,opacity:.3,depthWrite:false});
+  geometries.push(characterGeometry,characterShadowGeometry);materials.push(characterShadowMaterial);
+  loadCharacterAtlas().then(canvas=>{
+    if(dead)return;
+    const tx=new T.CanvasTexture(canvas);
+    tx.colorSpace=T.SRGBColorSpace;tx.magFilter=T.NearestFilter;tx.minFilter=T.NearestFilter;
+    tx.generateMipmaps=false;characterAtlas=tx;textures.push(tx);
+    for(const e of game.enemies)if(bodies.has(e.id))addCharacterSprite(bodies.get(e.id),e.skin);
+  }).catch(()=>onError('Os personagens não carregaram. Recarregue a página.'));
+  function addCharacterSprite(root,skin){
+    if(!characterAtlas||root.userData.character)return;
+    let mat=characterMaterials.get(skin);
+    if(!mat){const tx=characterAtlas.clone();const [top,height]=[[0,425],[425,430],[855,399]][Math.floor(skin/3)];tx.repeat.set(1/3,height/1254);tx.offset.set((skin%3)/3,1-(top+height)/1254);tx.needsUpdate=true;textures.push(tx);
+      mat=new T.MeshBasicMaterial({map:tx,transparent:true,alphaTest:.12,depthWrite:true,side:T.DoubleSide});materials.push(mat);characterMaterials.set(skin,mat);}
+    const figure=mesh(root,characterGeometry,mat,0,1.22,0);
+    root.userData.character=figure;
   }
-  function makeEnemy(e) {
-    const root = new T.Group();
-    dynamic.add(root);
-    const suit = material(COLORS[e.skin]);
-    box(root, 0.79, 0.84, 0.5, 0, 1.05, 0, suit);
-    box(root, 0.29, 0.63, 0.3, -0.23, 0.38, 0, mats.dark);
-    box(root, 0.29, 0.63, 0.3, 0.23, 0.38, 0, mats.dark);
-    box(root, 0.28, 0.7, 0.34, -0.55, 1.08, 0, suit);
-    box(root, 0.28, 0.7, 0.34, 0.55, 1.08, 0, suit);
-    box(root, 0.29, 0.23, 0.36, -0.55, 0.65, 0, mats.skin);
-    box(root, 0.29, 0.23, 0.36, 0.55, 0.65, 0, mats.skin);
-    box(root, 0.96, 0.98, 0.85, 0, 1.84, 0, mats.skin);
-    box(root, 0.17, 0.57, 0.06, 0, 1.18, 0.28, mats.yellow);
-    box(
-      root,
-      1.03,
-      0.19,
-      0.93,
-      0,
-      2.3,
-      0,
-      e.skin === 0 || e.skin === 3 || e.skin === 8 ? mats.white : mats.dark,
-    );
-    addFace(root, e.skin);
-    const ringGeo = new T.RingGeometry(0.48, 0.57, 16);
-    geometries.push(ringGeo);
-    const ring = mesh(
-      root,
-      ringGeo,
-      material(COLORS[e.skin], COLORS[e.skin], 1),
-      0,
-      0.025,
-      0,
-    );
-    ring.rotation.x = -Math.PI / 2;
-    const name = label(NAMES[e.skin].toUpperCase(), '#ffffff', 1.8, 0.28);
-    name.position.y = 2.65;
-    root.add(name);
-    root.userData.name = name;
-    batchStatic(root);
-    bodies.set(e.id, root);
+  function makeEnemy(e){
+    const root=new T.Group();dynamic.add(root);addCharacterSprite(root,e.skin);
+    const shadow=mesh(root,characterShadowGeometry,characterShadowMaterial,0,.025,0);shadow.rotation.x=-Math.PI/2;
+    const ringGeo=new T.RingGeometry(.67,.73,20);geometries.push(ringGeo);
+    const ring=mesh(root,ringGeo,material(COLORS[e.skin],COLORS[e.skin],.35),0,.035,0);ring.rotation.x=-Math.PI/2;
+    const name=label(NAMES[e.skin].toUpperCase(),'#fff0ce',1.8,.25);name.position.y=2.68;root.add(name);root.userData.name=name;
+    bodies.set(e.id,root);
   }
   function makeCrate(x, z) {
     const g = new T.Group();
@@ -747,8 +679,9 @@ export function createGame(canvas, onState, onError) {
       const g = bodies.get(e.id);
       if (!g) continue;
       if(e.hp<=0){dynamic.remove(g);bodies.delete(e.id);continue;}
-      g.position.set(e.x * TILE, Math.abs(Math.sin(e.walk)) * 0.08, e.z * TILE);
-      g.rotation.y = Math.atan2(game.player.x - e.x, game.player.z - e.z);
+      g.position.set(e.x*TILE,0,e.z*TILE);
+      const figure=g.userData.character;if(figure){figure.position.y=1.22+Math.abs(Math.sin(e.walk))*.035;figure.rotation.z=Math.sin(e.walk)*.018;figure.scale.y=1-Math.abs(Math.sin(e.walk))*.012;}
+      g.rotation.y = Math.atan2(camera.position.x/TILE - e.x, camera.position.z/TILE - e.z);
       g.visible = e.invulnerable <= 0 || Math.sin(clock * 30) > 0;
     }
     const active = new Set(game.bombs.map((b) => b.id));
@@ -1054,7 +987,7 @@ export function createGame(canvas, onState, onError) {
     e.preventDefault();
     pause();
     onError(
-      'A conexÃ£o com o 3D foi interrompida. Recarregue a pÃ¡gina para continuar.',
+      'A conexão com o 3D foi interrompida. Recarregue a página para continuar.',
     );
   });
   function loop(now) {

@@ -170,7 +170,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=2';
+    script.src = '/game/boot.js?v=3';
     script.onload = () => {
       if (disposed || !canvas.current) return;
       api.current = (window as unknown as GameWindow).createBombaGame(
@@ -718,7 +718,7 @@ export default function Home() {
                 ))}
               </div>
               <span>
-                Motor: Three.js · Retratos gerados por IA · Som original
+                Motor: Three.js · Personagens voxel gerados por IA · Som original
                 sintetizado
               </span>
             </div>

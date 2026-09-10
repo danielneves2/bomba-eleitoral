@@ -1,11 +1,12 @@
 export const INVASION_WARNING = 7;
-export const INVASION_DURATION = 30;
-export const INVASION_INTRO = 3.2;
+export const INVASION_DURATION = 14;
+export const INVASION_INTRO = 2.2;
+export const INVADERS = ['putin', 'trump', 'kim'];
 
 export class Invasion {
   constructor(random) {
-    this.kind = random() < 0.5 ? 'putin' : 'trump';
-    this.startsAt = 12 + random() * 20;
+    this.kind = INVADERS[Math.min(2, Math.floor(random() * 3))];
+    this.startsAt = 5 + random() * 5;
     this.stage = 'scheduled';
     this.warning = INVASION_WARNING;
     this.remaining = INVASION_DURATION;
@@ -29,11 +30,16 @@ export class Invasion {
       if (Math.ceil(this.warning) < previous)
         game.events.push({ type: 'invasion-beep', kind: this.kind });
       if (this.warning <= 0) {
-        this.stage = this.kind === 'putin' ? 'arrival' : 'active';
-        this.intro = this.kind === 'putin' ? INVASION_INTRO : 0;
+        this.stage = 'arrival';
+        this.intro = INVASION_INTRO;
         game.events.push({ type: 'invasion-enter', kind: this.kind });
       }
       return this.stage === 'arrival';
+    }
+    if (this.stage === 'arrival') {
+      this.intro = Math.max(0, this.intro - dt);
+      if (this.intro <= 0) this.stage = 'active';
+      return true;
     }
     this.remaining = Math.max(0, this.remaining - dt);
     if (this.remaining <= 0) {
@@ -42,22 +48,18 @@ export class Invasion {
       game.events.push({ type: 'invasion-exit', kind: this.kind });
       return false;
     }
-    if (this.stage === 'arrival') {
-      this.intro = Math.max(0, this.intro - dt);
-      if (this.intro <= 0) this.stage = 'active';
-      return true;
-    }
     const survivors = [game.player, ...game.enemies].filter(a => a.hp > 0);
-    if (this.kind === 'putin') {
+    if (this.kind === 'putin' || this.kind === 'kim') {
       this.shotClock -= dt;
-      if (this.shots < 2 && this.shotClock <= 0 && survivors.length) {
+      const limit = this.kind === 'kim' ? 3 : 2;
+      if (this.shots < limit && this.shotClock <= 0 && survivors.length) {
         const choices = survivors.filter(a => (a.id ?? 'player') !== this.lastTarget);
         const candidates = choices.length ? choices : survivors;
         const victim = candidates[Math.floor(game.random() * candidates.length)];
         this.lastTarget = victim.id ?? 'player';
-        this.targets.push({ id: ++game.serial, x: Math.round(victim.x), z: Math.round(victim.z), time: 3, victim: this.lastTarget });
+        this.targets.push({ id: ++game.serial, x: Math.round(victim.x), z: Math.round(victim.z), time: this.kind === 'kim' ? 2 : 2.5, victim: this.lastTarget });
         this.shots++;
-        this.shotClock = 10;
+        this.shotClock = this.kind === 'kim' ? 3.5 : 5;
         game.events.push({ type: 'invasion-target', player: this.lastTarget === 'player' });
       }
       for (const target of this.targets.slice()) {
@@ -87,7 +89,7 @@ export class Invasion {
       if (a.target) {
         const dx = a.target[0]-a.x, dz = a.target[1]-a.z, distance = Math.hypot(dx,dz);
         if (distance < 0.06) { a.x = a.target[0]; a.z = a.target[1]; a.target = null; }
-        else { const step = Math.min(distance, dt*2.1); game.move(a,dx/distance*step,dz/distance*step); a.walk += dt*10; }
+        else { const step = Math.min(distance, dt*2.5); game.move(a,dx/distance*step,dz/distance*step); a.walk += dt*10; }
       }
       if (a.bombClock <= 0) {
         game.addBomb(a.x,a.z,'invader',2,2.4);
@@ -97,7 +99,7 @@ export class Invasion {
     return false;
   }
   snapshot() {
-    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro,
+    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, duration: INVASION_DURATION,
       targeted: this.targets.some(t => t.victim === 'player'), shots: this.shots };
   }
 }

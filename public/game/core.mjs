@@ -1,5 +1,5 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
-import { Invasion } from './invasion.mjs';
+import { Invasion } from './invasion.mjs?v=7';
 export const SIZE = 15;
 export const QUOTES = [
   'Nunca antes na história deste país',
@@ -29,7 +29,7 @@ export function generateMap(random = Math.random) {
         ? 1
         : x % 2 === 0 && z % 2 === 0
           ? 1
-          : random() < 0.47
+          : random() < 0.32
             ? 2
             : 0,
     ),
@@ -58,7 +58,15 @@ export function generateMap(random = Math.random) {
     map[7][x] = 0;
     map[1][x] = 0;
   }
-  for (let z = 1; z < 14; z++) map[z][1] = 0;
+  for (let z = 1; z < 14; z++) {
+    map[z][1] = 0;
+    map[z][7] = 0;
+  }
+  // Small plazas create room to dodge and lob bombs without losing cover.
+  for (const [cx, cz] of [[3, 3], [11, 3], [3, 11], [11, 11]])
+    for (let z = cz - 1; z <= cz + 1; z++)
+      for (let x = cx - 1; x <= cx + 1; x++)
+        if (map[z][x] === 2) map[z][x] = 0;
   return map;
 }
 export function blastCells(map, x, z, range) {
@@ -92,6 +100,10 @@ export const NAMES = [
   'Datena',
 ];
 export const FUSE = 3;
+export function advanceFrame(game, seconds, input = {}) {
+  for (let remaining = Math.min(Math.max(0, seconds), .25); remaining > 1e-8; remaining -= .05)
+    game.tick(Math.min(.05, remaining), input);
+}
 export const PHYSICS_STEP = 1 / 120;
 const RADIUS = 0.19;
 function obstacleHeight(map, x, z) {
@@ -209,6 +221,9 @@ export class Match {
     this.overtimeClock = 0;
     this.damageClock = 0;
     this.hitMarker = 0;
+    this.damageFlash = 0;
+    this.shieldFlash = 0;
+    this.hitText = '';
     this.physicsAccumulator = 0;
     this.player.vx = 0;
     this.player.vz = 0;
@@ -557,6 +572,8 @@ export class Match {
     if (this.invasion.tick(this, dt)) return;
     if (this.pendingRelease !== null) { const planted=this.pendingRelease;this.pendingRelease=null;this.releaseBomb(planted); }
     this.hitMarker = Math.max(0, this.hitMarker - dt);
+    this.damageFlash = Math.max(0, this.damageFlash - dt);
+    this.shieldFlash = Math.max(0, this.shieldFlash - dt);
     const p = this.player;
     this.elapsed += dt;
     this.cooldown -= dt;
@@ -607,6 +624,7 @@ export class Match {
         this.explode(b);
         p.hp = Math.max(0, p.hp - 2);
         p.invulnerable = 1.6;
+        this.damageFlash = 0.55;
         this.events.push({ type: 'hurt' });
         this.notice = 'EXPLODIU NA MÃO!';
         this.noticeTime = 2;
@@ -701,9 +719,14 @@ export class Match {
       this.fires.find(
         (f) => Math.abs(f.x - a.x) < 0.58 && Math.abs(f.z - a.z) < 0.58,
       );
+    if (p.hp > 0 && hit(p) && p.invulnerable <= 0 && p.shield > 0 && this.shieldFlash <= 0) {
+      this.shieldFlash = 0.45;
+      this.events.push({ type: 'shield-block' });
+    }
     if (p.hp > 0 && hit(p) && p.invulnerable <= 0 && p.shield <= 0) {
       p.hp--;
       p.invulnerable = 1.6;
+      this.damageFlash = 0.55;
       this.events.push({ type: 'hurt' });
     }
     for (const e of this.enemies) {
@@ -711,11 +734,14 @@ export class Match {
       if (e.hp > 0 && e.invulnerable <= 0 && fire) {
         e.hp--;
         e.invulnerable = 0.9;
-        this.events.push({ type: 'hit', x: e.x, z: e.z });
-        if (fire.owner === 'player' || fire.owner === 'special')
-          this.hitMarker = 0.2;
+        const credited = fire.owner === 'player' || fire.owner === 'special';
+        this.events.push({ type: 'hit', id: e.id, x: e.x, z: e.z, credited, lethal: e.hp <= 0 });
+        if (credited) {
+          this.hitMarker = e.hp <= 0 ? 0.9 : 0.5;
+          this.hitText = e.hp <= 0 ? `${NAMES[e.skin]} ELIMINADO +500` : `${NAMES[e.skin]} · -1 CORAÇÃO`;
+        }
         if (e.hp <= 0) {
-          this.kills++;
+          if (credited) this.kills++;
           this.score +=
             fire.owner === 'player' || fire.owner === 'special' ? 500 : 200;
           this.chaos = Math.min(100, this.chaos + 12);
@@ -815,6 +841,9 @@ export class Match {
       winner: this.winner,
       overtime: this.overtime,
       hitMarker: this.hitMarker,
+      hitText: this.hitText,
+      damageFlash: this.damageFlash,
+      shieldFlash: this.shieldFlash,
       hp: this.player.hp,
       kills: this.kills,
       score: this.score,

@@ -9,6 +9,7 @@ import {
   PHYSICS_STEP,
   advanceProjectile,
   NAMES,
+  advanceFrame,
 } from '../public/game/core.mjs';
 const names = [];
 const test = (name, fn) => {
@@ -278,10 +279,11 @@ test('simultaneous final deaths annul election instead of declaring a winner', (
   assert.equal(g.phase, 'draw');
   assert.equal(g.winner, -2);
 });
-test('invasion draw covers both villains at roughly equal rates and varies timing', () => {
-  let putin=0; const timings=new Set();
-  for(let seed=0;seed<1000;seed++) { const g=new Match(seed);putin+=g.invasion.kind==='putin'?1:0;timings.add(g.invasion.startsAt);assert.ok(g.invasion.startsAt>=12&&g.invasion.startsAt<32); }
-  assert.ok(putin>430&&putin<570);assert.ok(timings.size>990);
+test('three invaders have equal draws and warning starts between five and ten seconds', () => {
+  const counts={putin:0,trump:0,kim:0},timings=new Set();
+  for(let seed=0;seed<1000;seed++) { const g=new Match(seed);counts[g.invasion.kind]++;timings.add(g.invasion.startsAt);assert.ok(g.invasion.startsAt>=5&&g.invasion.startsAt<10); }
+  for(const count of Object.values(counts)) assert.ok(count>270&&count<400);
+  assert.ok(timings.size>990);
 });
 test('warning lasts seven seconds and Putin flyby freezes actors, bombs and match clock', () => {
   const g=clean();g.invasion.kind='putin';g.invasion.startsAt=0;
@@ -295,14 +297,14 @@ test('warning lasts seven seconds and Putin flyby freezes actors, bombs and matc
   assert.equal(g.beginHold(),false);assert.equal(g.special(),false);
   g.phase='paused';const intro=g.invasion.intro;g.tick(.05);assert.equal(g.invasion.intro,intro);
 });
-test('Putin fires exactly two marked strikes, locks the area and leaves after thirty seconds', () => {
+test('Putin fires exactly two marked strikes, locks the area and leaves after fourteen seconds', () => {
   const g=clean();g.invasion.kind='putin';g.invasion.stage='active';
   g.invasion.shotClock=0;g.invasion.tick(g,.05);
   assert.equal(g.invasion.targets.length,1);const t=g.invasion.targets[0];
   const initial=[t.x,t.z];g.player.x=9;g.enemies[0].x=8;
   for(let i=0;i<20;i++)g.invasion.tick(g,.05);
   assert.deepEqual([t.x,t.z],initial);assert.equal(g.events.filter(e=>e.type==='explode').length,0);
-  for(let i=0;i<582;i++)g.invasion.tick(g,.05);
+  for(let i=0;i<260;i++)g.invasion.tick(g,.05);
   assert.equal(g.invasion.shots,2);assert.equal(g.events.filter(e=>e.type==='explode').length,2);
   assert.equal(g.invasion.stage,'done');assert.equal(g.invasion.targets.length,0);
 });
@@ -351,5 +353,64 @@ test('movement brakes quickly and diagonal movement has no speed advantage', () 
   assert.ok(Math.abs(distance(straight)-distance(diagonal))<.001);
   for(let i=0;i<3;i++)straight.tick(.05);
   assert.ok(Math.hypot(straight.player.vx,straight.player.vz)<.03);
+});
+test('open lanes and plazas reduce average crate count while preserving cover', () => {
+  let crates=0;
+  for(let seed=0;seed<100;seed++) {
+    const map=generateMap(rng(seed));crates+=map.flat().filter(c=>c===2).length;
+    for(let i=1;i<14;i++){assert.equal(map[7][i],0);assert.equal(map[i][7],0);}
+  }
+  assert.ok(crates/100>15&&crates/100<30);
+});
+test('damage feedback activates on actual damage and fades; shield feedback does not reduce HP', () => {
+  for(const shield of [0,5]) {
+    const g=clean();g.player.invulnerable=0;g.player.shield=shield;
+    g.fires=[{id:1,x:1,z:1,life:.72,owner:'invader'}];g.tick(.05);
+    assert.equal(g.player.hp,shield?3:2);
+    assert.ok(shield?g.shieldFlash>0:g.damageFlash>0);
+    assert.equal(shield?g.damageFlash:g.shieldFlash,0);
+    g.fires=[];for(let i=0;i<20;i++)g.tick(.05);
+    assert.equal(g.damageFlash,0);assert.equal(g.shieldFlash,0);
+  }
+});
+test('hit confirmations and kills credit only damage caused by the player', () => {
+  for(const owner of ['player','special','invader',888]) {
+    const g=clean();g.enemies[0].hp=1;g.enemies[0].x=7;g.enemies[0].z=7;
+    g.fires=[{id:1,x:7,z:7,life:.72,owner}];g.tick(.05);
+    const credited=owner==='player'||owner==='special';
+    assert.equal(g.kills,credited?1:0);assert.equal(g.hitMarker>0,credited);
+    assert.equal(g.events.find(e=>e.type==='hit').credited,credited);
+    if(credited)assert.match(g.hitText,/ELIMINADO/);
+  }
+});
+test('seven-second warning keeps real duration at 10, 30 and 60 FPS', () => {
+  for(const fps of [10,30,60]) {
+    const g=clean();g.invasion.stage='warning';g.invasion.kind='trump';g.nextStorm=999;
+    for(let i=0;i<fps*6.9;i++)advanceFrame(g,1/fps);
+    assert.equal(g.invasion.stage,'warning');
+    for(let i=0;i<Math.ceil(fps*.15);i++)advanceFrame(g,1/fps);
+    assert.equal(g.invasion.stage,'arrival');
+    assert.equal(g.invasion.remaining,14);
+  }
+});
+test('all intros freeze held fuses, resume in 2.2 seconds and allow fourteen active seconds', () => {
+  for(const kind of ['putin','trump','kim']) {
+    const g=clean();g.beginHold();g.invasion.kind=kind;g.invasion.stage='arrival';g.invasion.intro=2.2;
+    for(let i=0;i<44;i++)advanceFrame(g,.05,{forward:true});
+    assert.equal(g.player.x,1);assert.equal(g.heldBomb.fuse,3);assert.equal(g.invasion.remaining,14);
+    g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'active');
+    for(let i=0;i<281;i++)g.invasion.tick(g,.05);
+    assert.equal(g.invasion.stage,'done');
+  }
+});
+test('Kim launches three fixed marked rockets with two seconds to escape', () => {
+  const g=clean();g.invasion.kind='kim';g.invasion.stage='active';g.invasion.shotClock=0;
+  g.invasion.tick(g,.05);const target=g.invasion.targets[0],before=[target.x,target.z];
+  g.player.x=9;g.enemies[0].x=8;
+  for(let i=0;i<35;i++)g.invasion.tick(g,.05);
+  assert.deepEqual([target.x,target.z],before);assert.equal(g.events.filter(e=>e.type==='explode').length,0);
+  for(let i=0;i<245;i++)g.invasion.tick(g,.05);
+  assert.equal(g.invasion.shots,3);assert.equal(g.events.filter(e=>e.type==='explode').length,3);
+  assert.equal(g.invasion.stage,'done');
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

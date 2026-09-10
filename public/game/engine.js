@@ -1,8 +1,8 @@
 import * as T from '../vendor/three.module.js';
-import { createInvaderView } from './invaders.js?v=5';
+import { createInvaderView } from './invaders-v7.js';
 import { createPickupFactory } from './pickups.js?v=6';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES } from './core.mjs?v=6';
+import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=7';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -354,6 +354,9 @@ export function createGame(canvas, onState, onError) {
     const shadow=mesh(root,characterShadowGeometry,characterShadowMaterial,0,.025,0);shadow.rotation.x=-Math.PI/2;
     const ring=mesh(root,characterRingGeometry,characterRingMaterials[e.skin],0,.035,0);ring.rotation.x=-Math.PI/2;
     const name=label(NAMES[e.skin].toUpperCase(),'#fff0ce',1.8,.25);name.position.y=2.68;root.add(name);root.userData.name=name;
+    const health = new T.Group(); health.position.y = 2.93; root.add(health);
+    for(let i=0;i<e.hp;i++) box(health,.2,.055,.035,(i-(e.hp-1)/2)*.26,0,0,mats.red);
+    root.userData.health=health;
     bodies.set(e.id,root);
   }
   function makeCrate(x, z) {
@@ -689,8 +692,11 @@ export function createGame(canvas, onState, onError) {
       }
       if (e.type === 'invasion-enter') {
         tone(90,1.4,'sawtooth',.27,0,e.kind==='putin'?360:40);
-        if(e.kind==='putin') { game.player.vx=0;game.player.vz=0; }
-        else burst(13*TILE,1,7*TILE,45,[mats.red,mats.yellow,mats.white]);
+        game.player.vx=0;game.player.vz=0;
+        if(e.kind==='trump') {
+          burst(13*TILE,3,7*TILE,45,[mats.red,mats.cyan,mats.white]);
+          [392,523,659,784].forEach((note,i)=>tone(note,.25,'triangle',.18,i*.18));
+        }
       }
       if(e.type==='invasion-target') {
         tone(1300,.2,'square',.18);tone(1500,.2,'square',.18,.3);
@@ -710,7 +716,8 @@ export function createGame(canvas, onState, onError) {
       }
       if (e.type === 'explode') {
         burst(e.x * TILE, (e.y || 0.23) * TILE, e.z * TILE, 30);
-        shake = reduced ? 0 : 0.075;
+        const distance = Math.hypot(e.x-game.player.x,e.z-game.player.z);
+        shake = Math.max(shake, reduced ? 0 : .07 * Math.max(0,1-distance/6));
         flash.position.set(e.x * TILE, 2, e.z * TILE);
         flash.intensity = 35;
         noise(0.34);
@@ -740,12 +747,15 @@ export function createGame(canvas, onState, onError) {
         tone(520, 0.16, 'square', 0.1);
         tone(780, 0.2, 'square', 0.1, 0.1);
       }
-      if (e.type === 'hit')
+      if (e.type === 'hit') {
         burst(e.x * TILE, 1.4, e.z * TILE, 8, [mats.white, mats.pink]);
+        if(e.credited) tone(e.lethal?1100:820,.1,'triangle',.22,0,e.lethal?1500:1200);
+      }
       if (e.type === 'hurt') {
-        shake = reduced ? 0 : 0.11;
+        shake = reduced ? 0 : 0.24;
         tone(180, 0.4, 'sawtooth', 0.23, 0, 50);
       }
+      if(e.type==='shield-block') tone(1400,.15,'sine',.15,0,450);
       if (e.type === 'pickup') {
         tone(440, 0.1, 'square', 0.13);
         tone(660, 0.12, 'square', 0.13, 0.08);
@@ -779,6 +789,7 @@ export function createGame(canvas, onState, onError) {
       const figure=g.userData.character;if(figure){figure.position.y=1.22+Math.abs(Math.sin(e.walk))*.035;figure.rotation.z=Math.sin(e.walk)*.018;figure.scale.y=1-Math.abs(Math.sin(e.walk))*.012;}
       g.rotation.y = Math.atan2(camera.position.x/TILE - e.x, camera.position.z/TILE - e.z);
       g.visible = e.invulnerable <= 0 || Math.sin(clock * 30) > 0;
+      g.userData.health.children.forEach((pip,i)=>pip.visible=i<e.hp);
     }
     const active = new Set(game.bombs.map((b) => b.id));
     for (const [id, g] of bombs)
@@ -1079,10 +1090,11 @@ export function createGame(canvas, onState, onError) {
     );
   });
   const makePickup=createPickupFactory({mesh,box,material,batchStatic,geometries,materials});
-  const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures});
+  const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures,onError});
   function loop(now) {
     if (dead) return;
-    const dt = Math.min((now - last) / 1000, 0.05);
+    const elapsedFrame = Math.min((now - last) / 1000, 0.25);
+    const dt = Math.min(elapsedFrame, 0.05);
     last = now;
     clock += dt;
     if (['playing', 'spectating'].includes(game.phase)) {
@@ -1091,13 +1103,15 @@ export function createGame(canvas, onState, onError) {
         if (keys.ArrowLeft) p.yaw += dt * 1.7;
         if (keys.ArrowRight) p.yaw -= dt * 1.7;
       }
-      game.tick(dt, {
+      const input = {
         forward: keys.KeyW || keys.ArrowUp,
         back: keys.KeyS || keys.ArrowDown,
         left: keys.KeyA,
         right: keys.KeyD,
         run: keys.ShiftLeft || keys.ShiftRight,
-      });
+      };
+      // Catch up in small physics steps instead of stretching seconds at low FPS.
+      advanceFrame(game,elapsedFrame,input);
       events();
       syncWorld(dt);
       const moving = keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD;
@@ -1109,11 +1123,11 @@ export function createGame(canvas, onState, onError) {
       shake = Math.max(0, shake - dt);
       if (game.phase === 'playing') {
         camera.position.set(
-          p.x * TILE + (Math.random() - 0.5) * shake,
-          1.8 + bob + (Math.random() - 0.5) * shake,
+          p.x * TILE + Math.sin(clock*73) * shake * .18,
+          1.8 + bob + Math.sin(clock*91) * shake * .12,
           p.z * TILE,
         );
-        camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
+        camera.rotation.set(p.pitch, p.yaw, Math.sin(clock*60)*shake*.025, 'YXZ');
       }
       const fov =
         80 + (p.turbo > 0 ? 9 : keys.ShiftLeft || keys.ShiftRight ? 4 : 0);
@@ -1130,12 +1144,14 @@ export function createGame(canvas, onState, onError) {
           camera.lookAt(e.x * TILE, 1, e.z * TILE);
         }
       }
-      invaderView.sync(camera);
+      invaderView.sync(camera,dt);
       if(game.invasion.stage==='arrival') {
-        const plane=invaderView.aircraft.position;
-        camera.position.set(reduced?26:plane.x+7,reduced?19:plane.y+4,plane.z+12);
-        camera.lookAt(plane.x,plane.y+.8,plane.z);
+        const focus=invaderView.focus;
+        if(game.invasion.kind==='putin') camera.position.set(reduced?26:focus.x+7,reduced?19:focus.y+4,focus.z+12);
+        else camera.position.set(focus.x+(reduced?0:Math.sin(game.invasion.intro)*1.2),focus.y+1.4,focus.z+9);
+        camera.lookAt(focus);
         camera.fov=58;camera.updateProjectionMatrix();hand.visible=false;
+        invaderView.sync(camera);
       }
       kick = Math.max(0, kick - dt * 2);
       hand.position.set(

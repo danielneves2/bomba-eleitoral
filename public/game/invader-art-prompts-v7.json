@@ -1,0 +1,22 @@
+{
+  "tool": "built-in image_gen",
+  "atlas": {
+    "file": "invaders-voxel-v7.png",
+    "width": 2172,
+    "height": 724,
+    "prompt": "Use case: style-transfer. Asset type: transparent game sprite atlas. Input image is STYLE REFERENCE ONLY. Create a new 3:1 atlas (1536x512 preferred) with exactly three equal square cells in ONE horizontal row. Match the reference's exact dense miniature voxel/pixel caricature rendering: oversized expressive heads, short stocky tiny bodies and limbs, finely clustered hard pixels, warm amber rim highlights, deep dark outlines, detailed cubic pixel clothing and facial texture. Not smooth 3D or vector. Left cell: recognizable Donald Trump, blond swept hair, smug confident expression, navy suit white shirt bright red tie, full body standing with one hand in a subtle confident gesture. Middle cell: recognizable Vladimir Putin, short sparse light hair, stern expression, dark suit white shirt subdued tie, full body standing. Right cell: recognizable Kim Jong-un, black flat-top haircut, round face, black buttoned Mao suit, full body standing. All front-facing slight 3/4 like reference. Exact equal character height, heads and feet aligned. Center each character at 1/6, 1/2, 5/6 image width. Each full silhouette entirely within its own square cell, generous clear transparent margins around all sides, feet fully visible. Actual alpha transparent background, NOT checkerboard painted into image. No dividers, no cell borders, no labels, no text, no letters, no props, no backgrounds, no floor, no cast shadows. Preserve the reference's sprite style closely.",
+    "alpha": false
+  },
+  "eagle": {
+    "file": "eagle-voxel-v7.png",
+    "width": 1254,
+    "height": 1254,
+    "prompt": "Use case: style-transfer. Asset type: transparent flying eagle sprite for the same voxel caricature game as the supplied STYLE REFERENCE. Generate one bald eagle with wings spread, full silhouette, centered on a square canvas, generous transparent margins. White head and tail, yellow beak and talons, dark brown body and flight feathers. Front slight 3/4 view, flying toward viewer, both wings fully visible. Match exact dense miniature voxel/pixel treatment from reference: finely clustered hard pixels, small cubic surface details, warm amber rim highlights, deep outlines, richly textured game sprite. Bird silhouette must read clearly when scaled down. Actual alpha transparent background. No humans, no flags, no text, no props, no scene, no floor, no shadow, do not paint a checkerboard.",
+    "alpha": false
+  },
+  "extractionAttempts": {
+    "atlas": "Use case: background-extraction. Edit this exact sprite atlas. Remove the entire gray-and-white checkerboard background to actual transparent alpha pixels. Retain all three character silhouettes EXACTLY, with original colors, pixel texture, proportions, poses, positions, full heads and feet. Make a clean transparent PNG cutout. Do not draw a transparency checkerboard. No background color or pattern. The result must contain only three characters and otherwise genuinely transparent pixels. Keep 3:1 canvas.",
+    "eagle": "Use case: background-extraction. Edit this exact eagle sprite. Erase every checkerboard square and all background marks. Output transparent PNG with actual alpha channel zero outside the bird. Preserve the entire eagle exactly, all feather tips, colors, head, beak, talons and tail. Only the bird silhouette remains; absolutely no painted gray or white transparency preview, no backdrop, no floor, no shadow. Preserve the square canvas.",
+    "result": "Both extraction attempts returned RGB images with baked backgrounds; originals selected for texture quality."
+  }
+}

@@ -278,4 +278,60 @@ test('simultaneous final deaths annul election instead of declaring a winner', (
   assert.equal(g.phase, 'draw');
   assert.equal(g.winner, -2);
 });
+test('invasion draw covers both villains at roughly equal rates and varies timing', () => {
+  let putin=0; const timings=new Set();
+  for(let seed=0;seed<1000;seed++) { const g=new Match(seed);putin+=g.invasion.kind==='putin'?1:0;timings.add(g.invasion.startsAt);assert.ok(g.invasion.startsAt>=12&&g.invasion.startsAt<32); }
+  assert.ok(putin>430&&putin<570);assert.ok(timings.size>990);
+});
+test('warning lasts seven seconds and Putin flyby freezes actors, bombs and match clock', () => {
+  const g=clean();g.invasion.kind='putin';g.invasion.startsAt=0;
+  g.tick(.05);assert.equal(g.invasion.stage,'warning');
+  for(let n=0;n<139;n++)g.tick(.05);
+  assert.equal(g.invasion.stage,'warning');
+  for(let n=0;n<2;n++)g.tick(.05);
+  assert.equal(g.invasion.stage,'arrival');
+  const b=g.addBomb(5,5,'player',2,2);const elapsed=g.elapsed,x=g.player.x;
+  g.tick(.05,{right:true});assert.equal(g.elapsed,elapsed);assert.equal(g.player.x,x);assert.equal(b.fuse,2);
+  assert.equal(g.beginHold(),false);assert.equal(g.special(),false);
+  g.phase='paused';const intro=g.invasion.intro;g.tick(.05);assert.equal(g.invasion.intro,intro);
+});
+test('Putin fires exactly two marked strikes, locks the area and leaves after thirty seconds', () => {
+  const g=clean();g.invasion.kind='putin';g.invasion.stage='active';
+  g.invasion.shotClock=0;g.invasion.tick(g,.05);
+  assert.equal(g.invasion.targets.length,1);const t=g.invasion.targets[0];
+  const initial=[t.x,t.z];g.player.x=9;g.enemies[0].x=8;
+  for(let i=0;i<20;i++)g.invasion.tick(g,.05);
+  assert.deepEqual([t.x,t.z],initial);assert.equal(g.events.filter(e=>e.type==='explode').length,0);
+  for(let i=0;i<582;i++)g.invasion.tick(g,.05);
+  assert.equal(g.invasion.shots,2);assert.equal(g.events.filter(e=>e.type==='explode').length,2);
+  assert.equal(g.invasion.stage,'done');assert.equal(g.invasion.targets.length,0);
+});
+test('Trump follows traversable corridors, plants bombs and never enters election standings', () => {
+  const g=clean();g.invasion.kind='trump';g.invasion.stage='active';const a=g.invasion.actor;
+  const before=[a.x,a.z];
+  for(let i=0;i<120;i++){g.invasion.tick(g,.05);assert.equal(g.solid(a.x,a.z),false);}
+  assert.notDeepEqual([a.x,a.z],before);assert.ok(g.bombs.some(b=>b.owner==='invader'));
+  assert.equal(g.enemies.length,1);g.enemies[0].hp=0;g.resolveWinner();assert.equal(g.winner,g.character);
+  const remaining=g.invasion.remaining;g.tick(.05);assert.equal(g.invasion.remaining,remaining);
+  g.reset();assert.equal(g.invasion.stage,'scheduled');assert.equal(g.invasion.targets.length,0);
+});
+test('marked strike damages a contestant who stays and spares one who leaves', () => {
+  for(const escape of [false,true]) {
+    const g=clean();g.nextStorm=1000;g.player.x=7;g.player.z=7;g.player.invulnerable=0;
+    g.invasion.kind='putin';g.invasion.stage='active';g.invasion.shots=2;
+    g.invasion.targets=[{id:123,x:7,z:7,time:3,victim:'player'}];
+    assert.ok(g.danger().has('7,7'));
+    if(escape)g.player.x=10;
+    for(let i=0;i<62;i++)g.tick(.05);
+    assert.equal(g.player.hp,escape?3:2);
+  }
+});
+test('releasing a cooked bomb during the flyby queues it with its fuse preserved', () => {
+  const g=clean();g.beginHold();g.heldBomb.fuse=1.5;
+  g.invasion.kind='putin';g.invasion.stage='arrival';g.invasion.intro=.1;
+  assert.equal(g.releaseBomb(),false);
+  for(let i=0;i<4;i++)g.tick(.05);
+  assert.equal(g.heldBomb,null);assert.equal(g.bombs.length,1);
+  assert.ok(g.bombs[0].fuse>1.3&&g.bombs[0].fuse<1.5);
+});
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

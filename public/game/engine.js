@@ -1,6 +1,7 @@
 import * as T from '../vendor/three.module.js';
+import { createInvaderView } from './invaders.js?v=5';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES } from './core.mjs?v=4';
+import { Match, SIZE, cell, NAMES } from './core.mjs?v=5';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -463,7 +464,7 @@ export function createGame(canvas, onState, onError) {
   const aimTarget = mesh(aimRoot, aimGeo, targetMat);
   aimTarget.rotation.x = -Math.PI / 2;
   function updateAim(dt) {
-    aimRoot.visible = game.phase === 'playing' && !!game.heldBomb;
+    aimRoot.visible = game.phase === 'playing' && game.invasion.stage !== 'arrival' && !!game.heldBomb;
     if (!aimRoot.visible) return;
     arcClock += dt;
     if (arcClock < 1 / 60) return;
@@ -600,6 +601,19 @@ export function createGame(canvas, onState, onError) {
   function events() {
     for (const e of game.events.splice(0)) {
       if (e.type === 'reset') continue;
+      if (e.type === 'invasion-warning' || e.type === 'invasion-beep') {
+        tone(420,.42,'sawtooth',.2,0,980);
+        tone(980,.4,'sawtooth',.18,.42,420);
+      }
+      if (e.type === 'invasion-enter') {
+        tone(90,1.4,'sawtooth',.27,0,e.kind==='putin'?360:40);
+        if(e.kind==='putin') { game.player.vx=0;game.player.vz=0; }
+        else burst(13*TILE,1,7*TILE,45,[mats.red,mats.yellow,mats.white]);
+      }
+      if(e.type==='invasion-target') {
+        tone(1300,.2,'square',.18);tone(1500,.2,'square',.18,.3);
+      }
+      if(e.type==='invasion-exit') tone(650,.8,'triangle',.18,0,160);
       if (e.type === 'pin') {
         tone(1400, 0.07, 'triangle', 0.14);
         nextFuseBeep = 0;
@@ -929,7 +943,7 @@ export function createGame(canvas, onState, onError) {
     keys[e.code] = false;
   });
   bind(document, 'mousemove', (e) => {
-    if (game.phase !== 'playing') return;
+    if (game.phase !== 'playing' || game.invasion.stage === 'arrival') return;
     if (document.pointerLockElement === canvas || held) {
       game.player.yaw -= e.movementX * 0.0018 * sensitivity;
       game.player.pitch = Math.max(
@@ -950,7 +964,7 @@ export function createGame(canvas, onState, onError) {
     }
   });
   bind(canvas, 'pointermove', (e) => {
-    if (!drag || drag.id !== e.pointerId || game.phase !== 'playing') return;
+    if (!drag || drag.id !== e.pointerId || game.phase !== 'playing' || game.invasion.stage === 'arrival') return;
     game.player.yaw -= (e.clientX - drag.x) * 0.005;
     game.player.pitch = Math.max(
       -1,
@@ -990,6 +1004,7 @@ export function createGame(canvas, onState, onError) {
       'A conexão com o 3D foi interrompida. Recarregue a página para continuar.',
     );
   });
+  const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures});
   function loop(now) {
     if (dead) return;
     const dt = Math.min((now - last) / 1000, 0.05);
@@ -997,8 +1012,10 @@ export function createGame(canvas, onState, onError) {
     clock += dt;
     if (['playing', 'spectating'].includes(game.phase)) {
       const p = game.player;
-      if (keys.ArrowLeft) p.yaw += dt * 1.7;
-      if (keys.ArrowRight) p.yaw -= dt * 1.7;
+      if (game.invasion.stage !== 'arrival') {
+        if (keys.ArrowLeft) p.yaw += dt * 1.7;
+        if (keys.ArrowRight) p.yaw -= dt * 1.7;
+      }
       game.tick(dt, {
         forward: keys.KeyW || keys.ArrowUp,
         back: keys.KeyS || keys.ArrowDown,
@@ -1037,6 +1054,13 @@ export function createGame(canvas, onState, onError) {
           );
           camera.lookAt(e.x * TILE, 1, e.z * TILE);
         }
+      }
+      invaderView.sync(camera);
+      if(game.invasion.stage==='arrival') {
+        const plane=invaderView.aircraft.position;
+        camera.position.set(reduced?26:plane.x+7,reduced?19:plane.y+4,plane.z+12);
+        camera.lookAt(plane.x,plane.y+.8,plane.z);
+        camera.fov=58;camera.updateProjectionMatrix();hand.visible=false;
       }
       kick = Math.max(0, kick - dt * 2);
       hand.position.set(
@@ -1077,6 +1101,7 @@ export function createGame(canvas, onState, onError) {
       camera.lookAt(center - 2, 1.5, center);
       syncWorld(dt);
     } else hand.visible = false;
+    invaderView.sync(camera);
     updateAim(dt);
     hudClock += dt;
     if (hudClock > 0.05) {
@@ -1138,6 +1163,7 @@ export function createGame(canvas, onState, onError) {
     },
     destroy() {
       dead = true;
+      invaderView.dispose();
       cancelAnimationFrame(frame);
       unlock();
       listeners.forEach((f) => f());

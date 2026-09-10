@@ -4,6 +4,8 @@ Jogo satírico em primeira pessoa, criado com Three.js e uma interface React.
 
 Escolha entre nove personagens: Lula, Bolsonaro, Dilma, Temer, Pablo Marçal, Renan Santos, Paulo Kogos, Boulos e Datena. Dispute contra oito rivais controlados pelo jogo (três em Aquecimento). O último sobrevivente é eleito. Após três minutos começa a morte súbita; se ninguém sobreviver, a eleição é anulada. Explosões se propagam em cruz, destroem caixotes e detonam outras bombas. Elas também atingem o jogador.
 
+Uma invasão é sorteada ao iniciar cada partida: Putin ou Trump, com 50% de chance para cada um. O aviso começa em um momento aleatório entre 12 e 32 segundos de jogo, com sete segundos de barra, retrato e sirene. A invasão dura 30 segundos, ou até a eleição encerrar a partida. Putin chega em uma animação 3D de avião de 3,2 segundos que pausa todos os participantes e pavios; depois lança duas bombas sobre áreas fixas marcadas de vermelho durante três segundos. Trump percorre os corredores e deixa bombas. Os invasores não disputam a eleição. A partida continua sendo local contra bots.
+
 - WASD: mover; mouse: mirar; Shift: correr.
 - Segure o clique: acender o pavio e mirar; solte: arremessar em arco com o tempo restante. O pavio dura 3 segundos e pode explodir na mão. A seta prevê a física do arremesso e dos ricochetes.
 - Espaço: plantar bomba; E: especial; Q: bordão.

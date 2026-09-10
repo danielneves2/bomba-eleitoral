@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Slider } from '@/components/ui/slider';
+import { Progress } from '@/components/ui/progress';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Bomb,
@@ -111,6 +112,7 @@ const cast = [
   },
 ];
 const initial = {
+  invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:30,intro:0,targeted:false,shots:0 },
   phase: 'menu',
   countdown: 0,
   holding: false,
@@ -172,7 +174,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=4';
+    script.src = '/game/boot.js?v=5';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -403,6 +405,19 @@ export default function Home() {
       )}
       {!menu && (
         <>
+          {['playing','spectating','paused'].includes(state.phase) && ['warning','arrival','active'].includes(state.invasion.stage) && (
+            <aside className={`invasion-alert invasion-${state.invasion.stage}`} aria-label={`Invasão de ${state.invasion.kind === 'putin' ? 'Putin' : 'Trump'}`}>
+              <div className={`invader-portrait invader-${state.invasion.kind}`} />
+              <div className="invasion-copy">
+                <span>{state.invasion.stage === 'warning' ? '⚠ INVASÃO DETECTADA' : state.invasion.stage === 'arrival' ? 'ESPAÇO AÉREO INVADIDO' : 'INVASOR NA ARENA'}</span>
+                <strong>{state.invasion.kind === 'putin' ? 'PUTIN' : 'TRUMP'} <b>{Math.ceil(state.invasion.stage === 'warning' ? state.invasion.warning : state.invasion.remaining)}s</b></strong>
+                <small>{state.invasion.stage === 'warning' ? 'Prepare-se. O circo ganhou um convidado.' : state.invasion.kind === 'putin' ? 'Bombardeio aéreo · saia dos círculos vermelhos!' : 'Bombas pelo caminho. Mantenha distância!'}</small>
+                <Progress className="invasion-progress" aria-label={state.invasion.stage === 'warning' ? 'Chegada do invasor' : 'Tempo restante da invasão'} value={state.invasion.stage === 'warning' ? (1-state.invasion.warning/7)*100 : state.invasion.remaining/30*100} />
+              </div>
+            </aside>
+          )}
+          {state.invasion.stage === 'arrival' && ['playing','spectating','paused'].includes(state.phase) && <div className="flyby-caption"><span>VISITA NADA DIPLOMÁTICA</span><strong>PUTIN CHEGOU PELO AR</strong><small>A partida continua após a chegada</small></div>}
+          {state.invasion.targeted && ['playing','spectating'].includes(state.phase) && <div className="targeted-alert" role="alert">NA MIRA DE PUTIN · SAIA DO CÍRCULO!</div>}
           <div className="hud">
             <div className="player-status">
               <div className={`hud-portrait portrait portrait-${selected}`} />

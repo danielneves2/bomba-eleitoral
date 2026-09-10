@@ -1,4 +1,5 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
+import { Invasion } from './invasion.mjs';
 export const SIZE = 15;
 export const QUOTES = [
   'Nunca antes na história deste país',
@@ -201,6 +202,7 @@ export class Match {
     };
     this.bombs = [];
     this.heldBomb = null;
+    this.pendingRelease = null;
     this.countdown = 3;
     this.winner = -1;
     this.overtime = false;
@@ -254,6 +256,7 @@ export class Match {
         walk: 0,
       }),
     );
+    this.invasion = new Invasion(this.random);
     this.events.push({ type: 'reset' });
   }
   solid(x, z) {
@@ -299,6 +302,7 @@ export class Match {
   }
   beginHold() {
     if (
+      this.invasion.stage === 'arrival' ||
       this.phase !== 'playing' ||
       this.countdown > 0 ||
       this.heldBomb ||
@@ -311,6 +315,7 @@ export class Match {
     return true;
   }
   releaseBomb(planted = false) {
+    if (this.invasion.stage === 'arrival') { this.pendingRelease = planted; return false; }
     if (this.phase !== 'playing' || !this.heldBomb) return false;
     const h = this.heldBomb;
     this.heldBomb = null;
@@ -381,6 +386,7 @@ export class Match {
   }
   special() {
     if (
+      this.invasion.stage === 'arrival' ||
       this.phase !== 'playing' ||
       this.countdown > 0 ||
       this.player.hp <= 0 ||
@@ -499,6 +505,8 @@ export class Match {
   }
   danger() {
     const danger = new Set(this.fires.map((f) => cell(f.x, f.z)));
+    for (const target of this.invasion.targets)
+      for (const [x,z] of blastCells(this.map,target.x,target.z,1)) danger.add(cell(x,z));
     for (const b of this.bombs)
       for (const [x, z] of blastCells(this.map, b.x, b.z, b.range))
         danger.add(cell(x, z));
@@ -545,6 +553,9 @@ export class Match {
       this.countdown = Math.max(0, this.countdown - dt);
       return;
     }
+    // Every contestant, bomb fuse and match clock pauses for the shared flyby.
+    if (this.invasion.tick(this, dt)) return;
+    if (this.pendingRelease !== null) { const planted=this.pendingRelease;this.pendingRelease=null;this.releaseBomb(planted); }
     this.hitMarker = Math.max(0, this.hitMarker - dt);
     const p = this.player;
     this.elapsed += dt;
@@ -795,6 +806,7 @@ export class Match {
   snapshot() {
     return {
       phase: this.phase,
+      invasion: this.invasion.snapshot(),
       countdown: this.countdown,
       holding: !!this.heldBomb,
       fuse: this.heldBomb ? Math.max(0, this.heldBomb.fuse) : 0,

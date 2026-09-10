@@ -1,5 +1,5 @@
 import * as T from '../vendor/three.module.js';
-import { createInvaderView } from './invaders-v7.js';
+import { createInvaderView } from './invaders-v7.js?v=8';
 import { createPickupFactory } from './pickups.js?v=6';
 import { loadCharacterAtlas } from './characters.js?v=4';
 import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=7';

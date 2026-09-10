@@ -111,10 +111,12 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
       }
     }
     if (kim.visible) {
-      launcher.position.set(7 * 2.7, 0, -3);
-      kim.position.set(7 * 2.7, .75 + Math.sin(animation * 3) * .025, -1.8);
+      // Mount the launcher above the 3.6-unit perimeter so the arrival and
+      // the miniature remain visible from the arena, rather than behind it.
+      launcher.position.set(7 * 2.7, 3.65, -3);
+      kim.position.set(7 * 2.7, 4.4 + Math.sin(animation * 3) * .025, -1.8);
       kim.rotation.y = Math.atan2(camera.position.x - kim.position.x, camera.position.z - kim.position.z);
-      focus.set(kim.position.x, 2.2, kim.position.z);
+      focus.set(kim.position.x, 5.85, kim.position.z);
     }
     ringMat.color.setHex(invasion.kind === 'kim' ? 0xff8533 : 0xff183f);
     discMat.color.copy(ringMat.color); discMat.opacity = .16 + Math.abs(Math.sin(animation * 9)) * .14;

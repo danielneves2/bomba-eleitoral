@@ -178,7 +178,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=7';
+    script.src = '/game/boot.js?v=8';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {

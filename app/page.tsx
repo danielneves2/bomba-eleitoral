@@ -133,6 +133,7 @@ const initial = {
   event: '',
   combo: 0,
   shield: false,
+  shieldTime: 0,
   wave: 1,
 };
 type Snapshot = typeof initial;
@@ -174,7 +175,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=5';
+    script.src = '/game/boot.js?v=6';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -429,7 +430,7 @@ export default function Home() {
                       ♥
                     </span>
                   ))}
-                  {state.shield && <Shield size={23} />}
+                  {state.shield && <span className="shield-status" aria-label={`Escudo: ${Math.ceil(state.shieldTime)} segundos`}><Shield size={23} /><small>{Math.ceil(state.shieldTime)}s</small></span>}
                 </div>
               </div>
             </div>

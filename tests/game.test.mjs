@@ -334,4 +334,22 @@ test('releasing a cooked bomb during the flyby queues it with its fuse preserved
   assert.equal(g.heldBomb,null);assert.equal(g.bombs.length,1);
   assert.ok(g.bombs[0].fuse>1.3&&g.bombs[0].fuse<1.5);
 });
+test('heart pickup stays available at full health and restores one missing heart', () => {
+  const g=clean();g.items=[{id:123,x:1,z:1,type:0,wait:0}];
+  g.tick(.05);assert.equal(g.items.length,1);assert.equal(g.player.hp,3);
+  g.player.hp=2;g.tick(.05);assert.equal(g.items.length,0);assert.equal(g.player.hp,3);
+});
+test('shield pickup is forgiving to collect and never shortens longer protection', () => {
+  const g=clean();g.player.shield=8;g.items=[{id:123,x:1.6,z:1,type:1,wait:0}];
+  g.tick(.05);assert.equal(g.items.length,0);assert.ok(g.player.shield>7.9);
+  assert.equal(g.snapshot().shieldTime,g.player.shield);
+});
+test('movement brakes quickly and diagonal movement has no speed advantage', () => {
+  const straight=clean(),diagonal=clean();
+  for(let i=0;i<15;i++){straight.tick(.05,{forward:true});diagonal.tick(.05,{forward:true,right:true});}
+  const distance=g=>Math.hypot(g.player.x-1,g.player.z-1);
+  assert.ok(Math.abs(distance(straight)-distance(diagonal))<.001);
+  for(let i=0;i<3;i++)straight.tick(.05);
+  assert.ok(Math.hypot(straight.player.vx,straight.player.vz)<.03);
+});
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

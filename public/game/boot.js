@@ -1,4 +1,4 @@
-import { createGame } from './engine.js?v=5';
+import { createGame } from './engine.js?v=6';
 import { loadCharacterAtlas } from './characters.js?v=4';
 window.createBombaGame = createGame;
 window.loadCharacterAtlas = loadCharacterAtlas;

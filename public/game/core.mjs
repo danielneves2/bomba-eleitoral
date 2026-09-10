@@ -574,7 +574,7 @@ export class Match {
       side = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const length = Math.hypot(forward, side) || 1,
       speed = (input.run ? 3.3 : 2.5) * (p.turbo > 0 ? 1.5 : 1),
-      blend = 1 - Math.exp(-22 * dt);
+      blend = 1 - Math.exp(-(forward || side ? 22 : 36) * dt);
     const active = p.hp > 0 && this.phase === 'playing';
     p.vx +=
       (active
@@ -735,10 +735,11 @@ export class Match {
       if (
         p.hp > 0 &&
         item.wait <= 0 &&
-        Math.hypot(item.x - p.x, item.z - p.z) < 0.55
+        (item.type !== 0 || p.hp < 3) &&
+        Math.hypot(item.x - p.x, item.z - p.z) < 0.68
       ) {
         if (item.type === 0) p.hp = Math.min(3, p.hp + 1);
-        if (item.type === 1) p.shield = 6;
+        if (item.type === 1) p.shield = Math.max(p.shield, 6);
         if (item.type === 2) this.range = Math.min(6, this.range + 1);
         this.items.splice(this.items.indexOf(item), 1);
         this.score += 100;
@@ -831,6 +832,7 @@ export class Match {
       event: this.notice,
       combo: this.combo,
       shield: this.player.shield > 0,
+      shieldTime: this.player.shield,
       wave: 1,
     };
   }

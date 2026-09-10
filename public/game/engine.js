@@ -1,7 +1,8 @@
 import * as T from '../vendor/three.module.js';
 import { createInvaderView } from './invaders.js?v=5';
+import { createPickupFactory } from './pickups.js?v=6';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES } from './core.mjs?v=5';
+import { Match, SIZE, cell, NAMES } from './core.mjs?v=6';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -22,14 +23,16 @@ export function createGame(canvas, onState, onError) {
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.35;
+  renderer.toneMappingExposure = 1.12;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = T.PCFShadowMap;
   const scene = new T.Scene();
-  scene.background = new T.Color(0x170c2b);
-  scene.fog = new T.FogExp2(0x211139, 0.013);
+  scene.background = new T.Color(0x101c30);
+  scene.fog = new T.FogExp2(0x18283a, 0.009);
   const camera = new T.PerspectiveCamera(73, 1, 0.07, 150);
   camera.rotation.order = 'YXZ';
   scene.add(camera);
-  const game = new Match(42424);
+  const game = new Match();
   let dead = false,
     frame = 0,
     last = performance.now(),
@@ -76,10 +79,10 @@ export function createGame(canvas, onState, onError) {
     return m;
   };
   const mats = {
-    floorA: material(0x2c224b),
-    floorB: material(0x49315d),
-    wall: material(0x50316a),
-    trim: material(0x7b539d),
+    floorA: material(0x465260),
+    floorB: material(0x536170),
+    wall: material(0x345470),
+    trim: material(0x77929e),
     yellow: material(0xf8dc5a, 0xfcc42f, 0.3),
     pink: material(0xff4ca6, 0xff278e, 0.6),
     cyan: material(0x5ce6ef, 0x20cedd, 0.55),
@@ -90,14 +93,20 @@ export function createGame(canvas, onState, onError) {
     red: material(0xff3053, 0xff1c30, 1.5),
     fire: material(0xffa829, 0xff6611, 2),
     core: material(0xfff9a0, 0xffdb38, 2.5),
-    wood: material(0xa64f70),
-    woodEdge: material(0x542441),
-    pole: material(0x482758),
+    wood: material(0xb27636),
+    woodEdge: material(0x493422),
+    woodLight: material(0xd09b51),
+    steel: material(0xa1acac),
+    grout: material(0x202a35),
+    green: material(0x3b7656),
+    pole: material(0x293c50),
   };
   function box(root, w, h, d, x, y, z, mat) {
     const m = new T.Mesh(boxGeometry, mat);
     m.scale.set(w, h, d);
     m.position.set(x, y, z);
+    m.castShadow = y > 0 && h > .1 && mat.emissiveIntensity <= .5;
+    m.receiveShadow = true;
     root.add(m);
     return m;
   }
@@ -107,7 +116,11 @@ export function createGame(canvas, onState, onError) {
     root.add(m);
     return m;
   }
+  const labelCache = new Map();
   function label(text, color = '#e0ff65', width = 7, height = 1) {
+    const key=JSON.stringify([text,color,width,height]);
+    const cached=labelCache.get(key);
+    if(cached)return new T.Mesh(cached.geo,cached.mat);
     const c = document.createElement('canvas');
     c.width = 512;
     c.height = 80;
@@ -127,13 +140,19 @@ export function createGame(canvas, onState, onError) {
     materials.push(mat);
     const geo = new T.PlaneGeometry(width, height);
     geometries.push(geo);
+    labelCache.set(key,{geo,mat});
     return new T.Mesh(geo, mat);
   }
-  scene.add(new T.HemisphereLight(0xb697ff, 0x743a66, 2.25));
-  const sun = new T.DirectionalLight(0xffdaac, 3.1);
-  sun.position.set(5, 30, 15);
+  scene.add(new T.HemisphereLight(0xc3ddfa, 0x293041, 1.7));
+  const sun = new T.DirectionalLight(0xffdfad, 2.7);
+  sun.position.set(8, 45, 10);
+  sun.target.position.set(19,0,19);scene.add(sun.target);
+  sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+  Object.assign(sun.shadow.camera,{left:-31,right:31,top:31,bottom:-31,near:1,far:85});
+  sun.shadow.camera.updateProjectionMatrix();
+  sun.shadow.bias=-.0003;sun.shadow.normalBias=.045;
   scene.add(sun);
-  const blue = new T.DirectionalLight(0x746dff, 2);
+  const blue = new T.DirectionalLight(0x75b6e8, .65);
   blue.position.set(-25, 10, -10);
   scene.add(blue);
   const flash = new T.PointLight(0xff8c22, 0, 22, 1.5);
@@ -170,6 +189,8 @@ export function createGame(canvas, onState, onError) {
         m.parent.remove(m);
       });
       instance.instanceMatrix.needsUpdate = true;
+      instance.castShadow=list.some(m=>m.castShadow);
+      instance.receiveShadow=true;
       root.add(instance);
     }
   }
@@ -184,8 +205,12 @@ export function createGame(canvas, onState, onError) {
           x * TILE,
           -0.12,
           z * TILE,
-          (x + z) % 2 ? mats.floorA : mats.floorB,
+          mats.grout,
         );
+        for(let a=0;a<2;a++)for(let b=0;b<2;b++) {
+          const tile=box(staticRoot,1.28,.08,1.28,x*TILE+(a-.5)*1.34,-.03,z*TILE+(b-.5)*1.34,(x+z+a+b)%3?mats.floorA:mats.floorB);
+          tile.castShadow=false;
+        }
       }
     for (let i = 0; i < 4; i++) {
       const side = new T.Group();
@@ -305,8 +330,10 @@ export function createGame(canvas, onState, onError) {
   const characterMaterials = new Map();
   const characterGeometry = new T.PlaneGeometry(2.7, 2.7);
   const characterShadowGeometry = new T.CircleGeometry(.66, 24);
+  const characterRingGeometry = new T.RingGeometry(.67,.73,20);
+  const characterRingMaterials = COLORS.map(color=>material(color,color,.35));
   const characterShadowMaterial = new T.MeshBasicMaterial({color:0x090714,transparent:true,opacity:.3,depthWrite:false});
-  geometries.push(characterGeometry,characterShadowGeometry);materials.push(characterShadowMaterial);
+  geometries.push(characterGeometry,characterShadowGeometry,characterRingGeometry);materials.push(characterShadowMaterial);
   loadCharacterAtlas().then(canvas=>{
     if(dead)return;
     const tx=new T.CanvasTexture(canvas);
@@ -325,8 +352,7 @@ export function createGame(canvas, onState, onError) {
   function makeEnemy(e){
     const root=new T.Group();dynamic.add(root);addCharacterSprite(root,e.skin);
     const shadow=mesh(root,characterShadowGeometry,characterShadowMaterial,0,.025,0);shadow.rotation.x=-Math.PI/2;
-    const ringGeo=new T.RingGeometry(.67,.73,20);geometries.push(ringGeo);
-    const ring=mesh(root,ringGeo,material(COLORS[e.skin],COLORS[e.skin],.35),0,.035,0);ring.rotation.x=-Math.PI/2;
+    const ring=mesh(root,characterRingGeometry,characterRingMaterials[e.skin],0,.035,0);ring.rotation.x=-Math.PI/2;
     const name=label(NAMES[e.skin].toUpperCase(),'#fff0ce',1.8,.25);name.position.y=2.68;root.add(name);root.userData.name=name;
     bodies.set(e.id,root);
   }
@@ -334,7 +360,17 @@ export function createGame(canvas, onState, onError) {
     const g = new T.Group();
     g.position.set(x * TILE, 0, z * TILE);
     dynamic.add(g);
-    box(g, 2.27, 2.1, 2.27, 0, 1.05, 0, mats.wood);
+    box(g, 2.27, 2.1, 2.27, 0, 1.05, 0, mats.woodEdge);
+    for(let row=0;row<4;row++) {
+      const plank=row%2?mats.wood:mats.woodLight,y=.27+row*.51;
+      box(g,2.27,.47,2.31,0,y,0,plank);
+      box(g,2.31,.47,2.27,0,y,0,plank);
+    }
+    for(const side of [-1,1])for(const xPos of [-.82,.82]) {
+      box(g,.2,2.16,.075,xPos,1.08,side*1.2,mats.steel);
+      box(g,.11,.11,.095,xPos,1.85,side*1.22,mats.dark);
+      box(g,.11,.11,.095,xPos,.28,side*1.22,mats.dark);
+    }
     for (const y of [0.22, 1, 1.86]) {
       box(g, 2.36, 0.13, 2.36, 0, y, 0, mats.woodEdge);
     }
@@ -343,27 +379,70 @@ export function createGame(canvas, onState, onError) {
     const a = label('?', '#ffc578', 0.95, 0.5);
     a.position.set(0, 1.15, 1.2);
     g.add(a);
-    batchStatic(g);
     crates.set(cell(x, z), g);
   }
   const walls = new T.Group();
-  scene.add(walls);
+  const crateBatch = new T.Group();
+  scene.add(walls,crateBatch);
+  function batchCrates() {
+    const groups=new Map();
+    for(const g of crates.values()) {
+      g.updateMatrixWorld(true);g.userData.instanceSlots=[];
+      g.traverse(m=>{
+        if(!m.isMesh)return;
+        const key=m.geometry.uuid+m.material.uuid;
+        if(!groups.has(key))groups.set(key,[]);
+        groups.get(key).push({m,g});
+      });
+    }
+    for(const list of groups.values()) {
+      const instance=new T.InstancedMesh(list[0].m.geometry,list[0].m.material,list.length);
+      instance.castShadow=list.some(({m})=>m.castShadow);instance.receiveShadow=true;
+      list.forEach(({m,g},index)=>{
+        instance.setMatrixAt(index,m.matrixWorld);
+        g.userData.instanceSlots.push({instance,index});m.parent.remove(m);
+      });
+      instance.instanceMatrix.needsUpdate=true;crateBatch.add(instance);
+    }
+  }
+  const hiddenInstance=new T.Matrix4().makeScale(0,0,0);
+  function releaseObject(object) {
+    if(!object)return;
+    object.parent?.remove(object);
+    for(const {instance,index} of object.userData.instanceSlots||[]) {
+      instance.setMatrixAt(index,hiddenInstance);instance.instanceMatrix.needsUpdate=true;
+    }
+    object.traverse(m=>{if(m.isInstancedMesh)m.dispose();});
+    const counter=object.userData.counter;
+    if(counter) {
+      counter.tx.dispose();const ti=textures.indexOf(counter.tx);if(ti>=0)textures.splice(ti,1);
+      counter.mat.dispose();const mi=materials.indexOf(counter.mat);if(mi>=0)materials.splice(mi,1);
+    }
+  }
   function clearMap(map) {
-    for (const m of map.values()) m.parent?.remove(m);
+    for (const m of map.values()) releaseObject(m);
     map.clear();
   }
   function rebuild() {
     for (const maps of [bodies, bombs, flames, drops, warnings, crates])
       clearMap(maps);
-    walls.clear();
+    while(crateBatch.children.length)releaseObject(crateBatch.children[0]);
+    while(walls.children.length)releaseObject(walls.children[0]);
     for (const p of particles) p.mesh.parent?.remove(p.mesh);
     particles.length = 0;
     for (let z = 0; z < SIZE; z++)
       for (let x = 0; x < SIZE; x++) {
         if (game.map[z][x] === 1) {
           const h = x === 0 || z === 0 || x === 14 || z === 14 ? 3.6 : 2.65;
-          box(walls, 2.54, h, 2.54, x * TILE, h / 2, z * TILE, mats.wall);
-          box(walls, 2.59, 0.2, 2.59, x * TILE, h - 0.2, z * TILE, mats.trim);
+          const blockColor=(x+z)%4===0?mats.green:mats.wall;
+          box(walls, 2.54, h, 2.54, x * TILE, h / 2, z * TILE, blockColor);
+          box(walls,2.6,.18,2.6,x*TILE,.12,z*TILE,mats.dark);
+          box(walls, 2.59, 0.2, 2.59, x * TILE, h - 0.12, z * TILE, mats.trim);
+          for(let y=.88;y<h-.25;y+=.88)box(walls,2.555,.045,2.555,x*TILE,y,z*TILE,mats.grout);
+          for(const side of [-1,1]) {
+            box(walls,.045,h-.32,.035,x*TILE+.46,h/2,z*TILE+side*1.28,mats.grout);
+            box(walls,.035,h-.32,.045,x*TILE+side*1.28,h/2,z*TILE-.46,mats.grout);
+          }
           if (x % 4 === 0 && z % 4 === 0) {
             box(
               walls,
@@ -380,12 +459,15 @@ export function createGame(canvas, onState, onError) {
       }
     for (const e of game.enemies) makeEnemy(e);
     batchStatic(walls);
+    batchCrates();
   }
   const bombGeometry = new T.SphereGeometry(0.55, 10, 8);
   geometries.push(bombGeometry);
   function bombModel(withCounter = false) {
     const root = new T.Group();
-    mesh(root, bombGeometry, mats.bomb);
+    const shell=mesh(root, bombGeometry, mats.bomb);shell.castShadow=true;
+    box(root,.18,.14,.06,-.2,.3,.43,mats.steel);
+    box(root,.08,.22,.05,-.32,.15,.43,mats.trim);
     box(root, 0.22, 0.25, 0.22, 0, 0.58, 0, mats.trim);
     box(root, 0.07, 0.23, 0.07, 0.07, 0.78, 0, mats.yellow);
     const spark = mesh(root, octGeometry, mats.core, 0.07, 0.95, 0);
@@ -406,7 +488,7 @@ export function createGame(canvas, onState, onError) {
       badge.position.y = 1.3;
       badge.scale.set(1.25, 0.625, 1);
       root.add(badge);
-      root.userData.counter = { c, tx, last: '' };
+      root.userData.counter = { c, tx, mat, last: '' };
     }
     return root;
   }
@@ -636,7 +718,7 @@ export function createGame(canvas, onState, onError) {
       }
       if (e.type === 'crate') {
         const key = cell(e.x, e.z);
-        dynamic.remove(crates.get(key));
+        releaseObject(crates.get(key));
         crates.delete(key);
         burst(e.x * TILE, 1, e.z * TILE, 12, [
           mats.wood,
@@ -701,13 +783,7 @@ export function createGame(canvas, onState, onError) {
     const active = new Set(game.bombs.map((b) => b.id));
     for (const [id, g] of bombs)
       if (!active.has(id)) {
-        dynamic.remove(g);
-        const counter = g.userData.counter;
-        if (counter) {
-          counter.tx.dispose();
-          const idx = textures.indexOf(counter.tx);
-          if (idx >= 0) textures.splice(idx, 1);
-        }
+        releaseObject(g);
         bombs.delete(id);
       }
     for (const b of game.bombs) {
@@ -756,22 +832,20 @@ export function createGame(canvas, onState, onError) {
     const ids = new Set(game.items.map((i) => i.id));
     for (const [id, g] of drops)
       if (!ids.has(id)) {
-        dynamic.remove(g);
+        releaseObject(g);
         drops.delete(id);
       }
     for (const i of game.items) {
       let g = drops.get(i.id);
       if (!g) {
-        g = mesh(
-          dynamic,
-          octGeometry,
-          [mats.pink, mats.cyan, mats.yellow][i.type],
-        );
-        g.scale.setScalar(0.45);
+        g = makePickup(i.type);
+        dynamic.add(g);
         drops.set(i.id, g);
       }
-      g.position.set(i.x * TILE, 1 + Math.sin(clock * 3) * 0.15, i.z * TILE);
-      g.rotation.y = clock * 1.5;
+      g.position.set(i.x * TILE, 0, i.z * TILE);
+      const figure=g.userData.figure;
+      figure.position.y=1.05+(reduced?0:Math.sin(clock*2.6+i.id)*.09);
+      figure.rotation.y=Math.atan2(camera.position.x-g.position.x,camera.position.z-g.position.z)+(reduced?0:Math.sin(clock*1.8)*.12);
       g.visible = i.wait <= 0;
     }
     const stormIds = new Set(game.storm.map((i) => i.id));
@@ -853,7 +927,7 @@ export function createGame(canvas, onState, onError) {
   function resize() {
     const w = innerWidth,
       h = innerHeight,
-      scale = Math.min(0.72, 960 / w);
+      scale = Math.min(1, (matchMedia('(pointer: coarse)').matches?900:1280) / w);
     renderer.setSize(
       Math.max(1, Math.floor(w * scale)),
       Math.max(1, Math.floor(h * scale)),
@@ -1004,6 +1078,7 @@ export function createGame(canvas, onState, onError) {
       'A conexão com o 3D foi interrompida. Recarregue a página para continuar.',
     );
   });
+  const makePickup=createPickupFactory({mesh,box,material,batchStatic,geometries,materials});
   const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures});
   function loop(now) {
     if (dead) return;
@@ -1170,6 +1245,7 @@ export function createGame(canvas, onState, onError) {
       audio?.close();
       window.speechSynthesis?.cancel();
       radar.remove();
+      scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());
       textures.forEach((t) => t.dispose());

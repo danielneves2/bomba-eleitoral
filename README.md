@@ -6,6 +6,8 @@ Escolha entre nove personagens: Lula, Bolsonaro, Dilma, Temer, Pablo Marçal, Re
 
 Uma invasão é sorteada ao iniciar cada partida: Putin ou Trump, com 50% de chance para cada um. O aviso começa em um momento aleatório entre 12 e 32 segundos de jogo, com sete segundos de barra, retrato e sirene. A invasão dura 30 segundos, ou até a eleição encerrar a partida. Putin chega em uma animação 3D de avião de 3,2 segundos que pausa todos os participantes e pavios; depois lança duas bombas sobre áreas fixas marcadas de vermelho durante três segundos. Trump percorre os corredores e deixa bombas. Os invasores não disputam a eleição. A partida continua sendo local contra bots.
 
+A arena usa piso de pedra, blocos de alvenaria, caixotes com tábuas e ferragens, iluminação quente e sombras. Caixotes são agrupados por material para reduzir chamadas de desenho, preservando a destruição individual. Os itens têm modelos voxel de coração, escudo e raio; corações são preservados enquanto a vida está cheia e o escudo mostra o tempo restante. O movimento freia rapidamente ao soltar as teclas.
+
 - WASD: mover; mouse: mirar; Shift: correr.
 - Segure o clique: acender o pavio e mirar; solte: arremessar em arco com o tempo restante. O pavio dura 3 segundos e pode explodir na mão. A seta prevê a física do arremesso e dos ricochetes.
 - Espaço: plantar bomba; E: especial; Q: bordão.

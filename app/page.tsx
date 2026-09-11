@@ -25,8 +25,8 @@ const cast = [
     title: 'O veterano',
     color: '#ff506d',
     quote: 'Nunca antes na história deste país',
-    special: 'Onda vermelha',
-    desc: 'Uma chuva de bombas na sua frente.',
+    special: 'Picanha para todos',
+    desc: 'Três peças de picanha bloqueiam um impacto cada.',
     source:
       'https://www1.folha.uol.com.br/fsp/mundo/67032-bordao-de-lula-nunca-antes-na-historia-ganha-versao-em-peca-de-tv-de-chavez.shtml',
   },
@@ -35,8 +35,8 @@ const cast = [
     title: 'O capitão',
     color: '#b9f346',
     quote: 'Tá ok?',
-    special: 'Modo turbo',
-    desc: 'Velocidade e escudo por 6 segundos.',
+    special: 'Motociata',
+    desc: 'Arrancada que atropela e empurra os rivais.',
     source:
       'https://www1.folha.uol.com.br/poder/2019/10/esquece-o-psl-afirma-bolsonaro-ao-criticar-presidente-de-seu-partido.shtml',
   },
@@ -45,8 +45,8 @@ const cast = [
     title: 'A imprevisível',
     color: '#ffae4b',
     quote: 'Eu tô saudando a mandioca',
-    special: 'Saudação à mandioca',
-    desc: 'Superexplosão em cruz, com proteção.',
+    special: 'Estocar o vento',
+    desc: 'Absorve o próximo ataque e devolve uma rajada.',
     source:
       'https://m.folha.uol.com.br/poder/2015/06/1646966-em-cerimonia-com-indios-dilma-sauda-mandioca-e-fala-de-mulheres-sapiens.shtml',
   },
@@ -55,8 +55,8 @@ const cast = [
     title: 'O imortal',
     color: '#be95ff',
     quote: 'Não renunciarei.',
-    special: 'Não renunciarei',
-    desc: 'Recupere um coração e ganhe escudo.',
+    special: 'O vampiro não renuncia',
+    desc: 'Nega um golpe fatal e retorna em forma de morcegos.',
     source:
       'https://www.biblioteca.presidencia.gov.br/presidencia/ex-presidentes/michel-temer/discursos-do-presidente-da-republica/declaracao-a-imprensa-do-presidente-da-republica-michel-temer-brasilia-df-1',
   },
@@ -65,8 +65,8 @@ const cast = [
     title: 'O estrategista',
     color: '#66b5ff',
     quote: 'Faz o M!',
-    special: 'Mentalidade explosiva',
-    desc: 'Turbo, escudo e mais alcance.',
+    special: 'Muda o mindset',
+    desc: 'Cria três ilusões que confundem os rivais.',
     source:
       'https://www.gazetasp.com.br/politica/pablo-marcal-diz-apenas-faz-o-m-ao-chegar-ao-debate-da-gazeta/1142743/',
   },
@@ -85,8 +85,8 @@ const cast = [
     title: 'O cavaleiro',
     color: '#eded9d',
     quote: 'Imposto é roubo',
-    special: 'Propriedade protegida',
-    desc: 'Oito segundos de escudo.',
+    special: 'Propriedade privada',
+    desc: 'Demarca uma área protegida que barra invasores.',
     source:
       'https://mises.org.br/artigos/1563/impostoerouboestadoequadrilhaeoutrasconsideracoes/',
   },
@@ -95,8 +95,8 @@ const cast = [
     title: 'O mobilizador',
     color: '#ff5848',
     quote: 'Nós vamos virar essa eleição',
-    special: 'Virada na arena',
-    desc: 'Recupera vida e ativa o turbo.',
+    special: 'Ocupação',
+    desc: 'Ergue três barricadas temporárias ao seu redor.',
     source:
       'https://www.metropoles.com/sao-paulo/nos-vamos-virar-essa-eleicao-diz-boulos-em-ultimo-dia-de-campanha',
   },
@@ -105,8 +105,8 @@ const cast = [
     title: 'O apresentador',
     color: '#91b9e5',
     quote: 'Me ajuda aí!',
-    special: 'Plantão explosivo',
-    desc: 'Superbomba de alcance sete.',
+    special: 'Cadeira voadora',
+    desc: 'Arremessa uma cadeira que rebate e atordoa.',
     source:
       'https://tvefamosos.uol.com.br/colunas/flavio-ricco/2015/02/18/me-ajuda-ai---record-tambem-registrou-em-nome-dela-bordao-usado-pelo-datena.htm',
   },
@@ -137,6 +137,14 @@ const initial = {
   combo: 0,
   shield: false,
   shieldTime: 0,
+  picanha: 0,
+  picanhaTime: 0,
+  windTime: 0,
+  vampireTime: 0,
+  ramTime: 0,
+  propertyTime: 0,
+  decoys: 0,
+  barricades: 0,
   wave: 1,
 };
 type Snapshot = typeof initial;
@@ -178,7 +186,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=8';
+    script.src = '/game/boot.js?v=9';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -434,6 +442,13 @@ export default function Home() {
                     </span>
                   ))}
                   {state.shield && <span className="shield-status" aria-label={`Escudo: ${Math.ceil(state.shieldTime)} segundos`}><Shield size={23} /><small>{Math.ceil(state.shieldTime)}s</small></span>}
+                  {state.picanha > 0 && <span className="special-effect picanha-effect" aria-label={`${state.picanha} cargas de escudo de picanha`}>🥩<small>×{state.picanha}</small></span>}
+                  {state.windTime > 0 && <span className="special-effect wind-effect" aria-label={`Vento estocado por ${Math.ceil(state.windTime)} segundos`}>VENTO <small>{Math.ceil(state.windTime)}s</small></span>}
+                  {state.vampireTime > 0 && <span className="special-effect vampire-effect" aria-label={`Pacto imortal por ${Math.ceil(state.vampireTime)} segundos`}>🦇<small>{Math.ceil(state.vampireTime)}s</small></span>}
+                  {state.ramTime > 0 && <span className="special-effect ram-effect" aria-label={`Motociata por ${Math.ceil(state.ramTime)} segundos`}>MOTO <small>{Math.ceil(state.ramTime)}s</small></span>}
+                  {state.propertyTime > 0 && <span className="special-effect property-effect" aria-label={`Propriedade privada por ${Math.ceil(state.propertyTime)} segundos`}>ÁREA <small>{Math.ceil(state.propertyTime)}s</small></span>}
+                  {state.decoys > 0 && <span className="special-effect decoy-effect" aria-label={`${state.decoys} ilusões ativas`}>CÓPIAS <small>×{state.decoys}</small></span>}
+                  {state.barricades > 0 && <span className="special-effect barricade-effect" aria-label={`${state.barricades} barricadas ativas`}>BARREIRAS <small>×{state.barricades}</small></span>}
                 </div>
               </div>
             </div>

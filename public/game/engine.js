@@ -2,7 +2,7 @@ import * as T from '../vendor/three.module.js';
 import { createInvaderView } from './invaders-v7.js?v=8';
 import { createPickupFactory } from './pickups.js?v=6';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=7';
+import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=9';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -59,6 +59,9 @@ export function createGame(canvas, onState, onError) {
     drops = new Map(),
     warnings = new Map(),
     crates = new Map(),
+    chairs = new Map(),
+    decoyBodies = new Map(),
+    barricadeBodies = new Map(),
     particles = [];
   const staticRoot = new T.Group(),
     dynamic = new T.Group();
@@ -100,6 +103,9 @@ export function createGame(canvas, onState, onError) {
     grout: material(0x202a35),
     green: material(0x3b7656),
     pole: material(0x293c50),
+    steak: material(0xd85d48, 0x7c1f27, 0.18),
+    fat: material(0xffd9a2),
+    occupation: material(0xc8263e, 0x7d1025, 0.25),
   };
   function box(root, w, h, d, x, y, z, mat) {
     const m = new T.Mesh(boxGeometry, mat);
@@ -328,12 +334,16 @@ export function createGame(canvas, onState, onError) {
   // Alpha testing keeps silhouettes crisp and lets bombs remain visible through empty pixels.
   let characterAtlas = null;
   const characterMaterials = new Map();
+  const decoyMaterials = new Map();
   const characterGeometry = new T.PlaneGeometry(2.7, 2.7);
   const characterShadowGeometry = new T.CircleGeometry(.66, 24);
   const characterRingGeometry = new T.RingGeometry(.67,.73,20);
+  const propertyGeometry = new T.RingGeometry(2.18*TILE,2.35*TILE,48);
+  const propertyMaterial = new T.MeshBasicMaterial({color:0xffd43b,transparent:true,opacity:.48,side:T.DoubleSide,depthWrite:false});
   const characterRingMaterials = COLORS.map(color=>material(color,color,.35));
   const characterShadowMaterial = new T.MeshBasicMaterial({color:0x090714,transparent:true,opacity:.3,depthWrite:false});
-  geometries.push(characterGeometry,characterShadowGeometry,characterRingGeometry);materials.push(characterShadowMaterial);
+  geometries.push(characterGeometry,characterShadowGeometry,characterRingGeometry,propertyGeometry);materials.push(characterShadowMaterial,propertyMaterial);
+  const propertyRing=mesh(dynamic,propertyGeometry,propertyMaterial);propertyRing.rotation.x=-Math.PI/2;propertyRing.position.y=.06;propertyRing.visible=false;
   loadCharacterAtlas().then(canvas=>{
     if(dead)return;
     const tx=new T.CanvasTexture(canvas);
@@ -358,6 +368,32 @@ export function createGame(canvas, onState, onError) {
     for(let i=0;i<e.hp;i++) box(health,.2,.055,.035,(i-(e.hp-1)/2)*.26,0,0,mats.red);
     root.userData.health=health;
     bodies.set(e.id,root);
+  }
+  function makeDecoy(e) {
+    const root = new T.Group();dynamic.add(root);
+    addCharacterSprite(root,e.skin);
+    if(root.userData.character){
+      const original=root.userData.character.material;
+      let ghost=decoyMaterials.get(e.skin);
+      if(!ghost){ghost=original.clone();ghost.opacity=.42;ghost.transparent=true;ghost.depthWrite=false;materials.push(ghost);decoyMaterials.set(e.skin,ghost);}
+      root.userData.character.material=ghost;
+    }
+    const ring=mesh(root,characterRingGeometry,mats.cyan,0,.035,0);ring.rotation.x=-Math.PI/2;
+    decoyBodies.set(e.id,root);
+  }
+  function chairModel() {
+    const root=new T.Group();
+    box(root,1.12,.18,1.04,0,.72,0,mats.woodLight);
+    box(root,1.12,1.12,.16,0,1.3,.46,mats.wood);
+    for(const x of [-.44,.44])for(const z of [-.36,.36])box(root,.13,.78,.13,x,.34,z,mats.steel);
+    return root;
+  }
+  function makeBarricade(e) {
+    const root=new T.Group();root.position.set(e.x*TILE,0,e.z*TILE);dynamic.add(root);
+    box(root,2.3,1.42,2.3,0,.71,0,mats.occupation);
+    box(root,2.42,.16,2.42,0,1.42,0,mats.yellow);
+    const sign=label('OCUPADO','#fff0ce',1.75,.34);sign.position.set(0,1.02,1.18);root.add(sign);
+    barricadeBodies.set(e.id,root);
   }
   function makeCrate(x, z) {
     const g = new T.Group();
@@ -427,7 +463,7 @@ export function createGame(canvas, onState, onError) {
     map.clear();
   }
   function rebuild() {
-    for (const maps of [bodies, bombs, flames, drops, warnings, crates])
+    for (const maps of [bodies, bombs, flames, drops, warnings, crates, chairs, decoyBodies, barricadeBodies])
       clearMap(maps);
     while(crateBatch.children.length)releaseObject(crateBatch.children[0]);
     while(walls.children.length)releaseObject(walls.children[0]);
@@ -756,6 +792,22 @@ export function createGame(canvas, onState, onError) {
         tone(180, 0.4, 'sawtooth', 0.23, 0, 50);
       }
       if(e.type==='shield-block') tone(1400,.15,'sine',.15,0,450);
+      if(e.type==='picanha-block') {
+        burst(game.player.x*TILE,1.2,game.player.z*TILE,12,[mats.steak,mats.fat,mats.yellow]);
+        tone(980,.16,'square',.17,0,420);
+      }
+      if(e.type==='wind-release') {
+        burst(e.x*TILE,1.2,e.z*TILE,24,[mats.cyan,mats.white]);
+        tone(240,.7,'sine',.2,0,1200);
+      }
+      if(e.type==='vampire-revive') {
+        burst(e.x*TILE,1.4,e.z*TILE,48,[mats.dark,mats.pink,mats.red]);
+        tone(90,.8,'sawtooth',.24,0,620);
+      }
+      if(e.type==='ram-hit') { shake=reduced?0:.1;tone(115,.22,'square',.2,0,55); }
+      if(e.type==='chair-bounce') tone(310,.12,'square',.14,0,170);
+      if(e.type==='chair-bomb') tone(760,.18,'triangle',.18,0,320);
+      if(e.type==='chair-hit') { shake=reduced?0:.18;burst(e.x*TILE,1.2,e.z*TILE,18,[mats.wood,mats.steel,mats.yellow]);tone(125,.35,'square',.28,0,45); }
       if (e.type === 'pickup') {
         tone(440, 0.1, 'square', 0.13);
         tone(660, 0.12, 'square', 0.13, 0.08);
@@ -791,6 +843,24 @@ export function createGame(canvas, onState, onError) {
       g.visible = e.invulnerable <= 0 || Math.sin(clock * 30) > 0;
       g.userData.health.children.forEach((pip,i)=>pip.visible=i<e.hp);
     }
+    const activeDecoys=new Set(game.decoys.map(e=>e.id));
+    for(const [id,g] of decoyBodies)if(!activeDecoys.has(id)){releaseObject(g);decoyBodies.delete(id);}
+    for(const e of game.decoys){
+      let g=decoyBodies.get(e.id);if(!g){makeDecoy(e);g=decoyBodies.get(e.id);}
+      g.position.set(e.x*TILE,0,e.z*TILE);g.rotation.y=Math.atan2(camera.position.x/TILE-e.x,camera.position.z/TILE-e.z);
+      g.visible=Math.sin(clock*13+e.id)>-.35;
+    }
+    const activeChairs=new Set(game.chairs.map(e=>e.id));
+    for(const [id,g] of chairs)if(!activeChairs.has(id)){releaseObject(g);chairs.delete(id);}
+    for(const e of game.chairs){
+      let g=chairs.get(e.id);if(!g){g=chairModel();dynamic.add(g);chairs.set(e.id,g);}
+      g.position.set(e.x*TILE,.2,e.z*TILE);g.rotation.y=Math.atan2(e.vx,e.vz);g.rotation.z+=dt*5;
+    }
+    const activeBarricades=new Set(game.barricades.map(e=>e.id));
+    for(const [id,g] of barricadeBodies)if(!activeBarricades.has(id)){releaseObject(g);barricadeBodies.delete(id);}
+    for(const e of game.barricades)if(!barricadeBodies.has(e.id))makeBarricade(e);
+    propertyRing.visible=!!game.property;
+    if(game.property){propertyRing.position.x=game.property.x*TILE;propertyRing.position.z=game.property.z*TILE;propertyMaterial.opacity=.3+Math.sin(clock*7)*.14;}
     const active = new Set(game.bombs.map((b) => b.id));
     for (const [id, g] of bombs)
       if (!active.has(id)) {

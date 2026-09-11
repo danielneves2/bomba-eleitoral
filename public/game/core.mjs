@@ -82,7 +82,7 @@ export function blastCells(map, x, z, range) {
     for (let i = 1; i <= range; i++) {
       const a = x + dx * i,
         b = z + dz * i;
-      if (!map[b] || map[b][a] === undefined || map[b][a] === 1) break;
+      if (!map[b] || map[b][a] === undefined || map[b][a] === 1 || map[b][a] === 3) break;
       cells.push([a, b]);
       if (map[b][a] === 2) break;
     }
@@ -115,7 +115,7 @@ function obstacleHeight(map, x, z) {
     return cx === 0 || cz === 0 || cx === 14 || cz === 14
       ? 3.6 / 2.7
       : 2.65 / 2.7;
-  return v === 2 ? 2.1 / 2.7 : 0;
+  return v === 2 || v === 3 ? 2.1 / 2.7 : 0;
 }
 function supportHeight(map, x, z) {
   return Math.max(
@@ -211,6 +211,11 @@ export class Match {
       invulnerable: 3,
       shield: 0,
       turbo: 0,
+      picanha: 0,
+      picanhaTime: 0,
+      wind: 0,
+      vampire: 0,
+      ram: 0,
     };
     this.bombs = [];
     this.heldBomb = null;
@@ -228,6 +233,10 @@ export class Match {
     this.player.vx = 0;
     this.player.vz = 0;
     this.fires = [];
+    this.chairs = [];
+    this.decoys = [];
+    this.barricades = [];
+    this.property = null;
     this.items = [];
     this.events = [];
     this.score = 0;
@@ -267,6 +276,7 @@ export class Match {
         think: 0,
         target: null,
         invulnerable: 0,
+        ramCooldown: 0,
         speed: mode === 'treino' ? 1.03 : 1.35,
         walk: 0,
       }),
@@ -288,8 +298,14 @@ export class Match {
     ].some(([dx, dz]) => this.solid(x + dx, z + dz));
   }
   move(actor, dx, dz) {
-    if (this.canMove(actor.x + dx, actor.z)) actor.x += dx;
-    if (this.canMove(actor.x, actor.z + dz)) actor.z += dz;
+    const propertyBlocks = (x, z) => {
+      if (!this.property || this.property.time <= 0 || actor === this.player) return false;
+      const before = Math.hypot(actor.x - this.property.x, actor.z - this.property.z);
+      const after = Math.hypot(x - this.property.x, z - this.property.z);
+      return before >= this.property.radius && after < this.property.radius;
+    };
+    if (this.canMove(actor.x + dx, actor.z) && !propertyBlocks(actor.x + dx, actor.z)) actor.x += dx;
+    if (this.canMove(actor.x, actor.z + dz) && !propertyBlocks(actor.x, actor.z + dz)) actor.z += dz;
   }
   addBomb(x, z, owner = 'player', range = this.range, fuse = 2.3) {
     if (
@@ -399,6 +415,98 @@ export class Match {
     this.quoteTime = 3;
     this.events.push({ type: 'voice', text: this.quote });
   }
+  insideProperty(actor = this.player) {
+    return !!this.property && this.property.time > 0 &&
+      Math.hypot(actor.x - this.property.x, actor.z - this.property.z) < this.property.radius;
+  }
+  reviveVampire() {
+    const p = this.player;
+    const danger = this.danger();
+    let safe = null;
+    for (let z = 1; z < SIZE - 1; z++)
+      for (let x = 1; x < SIZE - 1; x++) {
+        if (this.map[z][x] !== 0 || danger.has(cell(x, z))) continue;
+        if (this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - x, e.z - z) < 1.1)) continue;
+        const distance = Math.hypot(p.x - x, p.z - z);
+        if (!safe || distance < safe.distance) safe = { x, z, distance };
+      }
+    if (safe) {
+      p.x = safe.x;
+      p.z = safe.z;
+    }
+    p.hp = 1;
+    p.vampire = 0;
+    p.invulnerable = 1.25;
+    p.vx = 0;
+    p.vz = 0;
+    this.notice = 'VOLTOU DO ALÉM!';
+    this.noticeTime = 2.6;
+    this.events.push({ type: 'vampire-revive', x: p.x, z: p.z });
+  }
+  hurtPlayer(amount = 1, { unblockable = false, ignoreInvulnerable = false } = {}) {
+    const p = this.player;
+    if (p.hp <= 0 || (!ignoreInvulnerable && p.invulnerable > 0)) return false;
+    if (!unblockable && p.picanha > 0 && p.picanhaTime > 0) {
+      p.picanha--;
+      p.invulnerable = 0.75;
+      this.shieldFlash = 0.45;
+      this.notice = p.picanha ? `PICANHA BLOQUEOU · ${p.picanha} RESTANTE${p.picanha > 1 ? 'S' : ''}` : 'ACABOU A PICANHA!';
+      this.noticeTime = 1.4;
+      this.events.push({ type: 'picanha-block', remaining: p.picanha });
+      return false;
+    }
+    if (!unblockable && (p.shield > 0 || this.insideProperty(p))) {
+      p.invulnerable = 0.75;
+      this.shieldFlash = 0.45;
+      this.events.push({ type: 'shield-block' });
+      return false;
+    }
+    p.hp = Math.max(0, p.hp - amount);
+    p.invulnerable = 1.6;
+    this.damageFlash = 0.55;
+    this.events.push({ type: 'hurt' });
+    if (p.hp <= 0 && p.vampire > 0) this.reviveVampire();
+    return true;
+  }
+  hurtEnemy(enemy, owner = 'special', amount = 1) {
+    if (!enemy || enemy.hp <= 0 || enemy.invulnerable > 0) return false;
+    enemy.hp = Math.max(0, enemy.hp - amount);
+    enemy.invulnerable = 0.9;
+    const credited = owner === 'player' || owner === 'special';
+    this.events.push({ type: 'hit', id: enemy.id, x: enemy.x, z: enemy.z, credited, lethal: enemy.hp <= 0 });
+    if (credited) {
+      this.hitMarker = enemy.hp <= 0 ? 0.9 : 0.5;
+      this.hitText = enemy.hp <= 0 ? `${NAMES[enemy.skin]} ELIMINADO +500` : `${NAMES[enemy.skin]} · -1 CORAÇÃO`;
+    }
+    if (enemy.hp <= 0) {
+      if (credited) this.kills++;
+      this.score += credited ? 500 : 200;
+      this.chaos = Math.min(100, this.chaos + 12);
+      this.specialCharge = Math.min(1, this.specialCharge + 0.2);
+      this.events.push({ type: 'defeat', id: enemy.id, x: enemy.x, z: enemy.z });
+      this.notice = ['CASSADO PELO CAOS!', 'MANDATO ENCERRADO!', 'VIROU CONFETE!'][Math.floor(this.random() * 3)];
+      this.noticeTime = 1.7;
+    }
+    return true;
+  }
+  releaseStoredWind() {
+    const p = this.player;
+    p.wind = 0;
+    for (let n = 1; n <= 6; n++) {
+      const x = Math.round(p.x - Math.sin(p.yaw) * n),
+        z = Math.round(p.z - Math.cos(p.yaw) * n);
+      if (x <= 0 || x >= SIZE - 1 || z <= 0 || z >= SIZE - 1 || this.map[z][x] === 1 || this.map[z][x] === 3) break;
+      this.fires.push({ id: ++this.serial, x, z, life: 0.5, owner: 'special' });
+      if (this.map[z][x] === 2) {
+        this.map[z][x] = 0;
+        this.events.push({ type: 'crate', x, z });
+        break;
+      }
+    }
+    this.notice = 'VENTO DEVOLVIDO!';
+    this.noticeTime = 2;
+    this.events.push({ type: 'wind-release', x: p.x, z: p.z, yaw: p.yaw });
+  }
   special() {
     if (
       this.invasion.stage === 'arrival' ||
@@ -412,49 +520,30 @@ export class Match {
     this.quoteTime = 0;
     this.speak();
     const p = this.player;
-    p.shield = Math.max(p.shield, 4);
     if (this.character === 0) {
-      for (let n = 2; n <= 6; n++) {
-        const x = Math.round(p.x - Math.sin(p.yaw) * n),
-          z = Math.round(p.z - Math.cos(p.yaw) * n);
-        if (x > 0 && x < 14 && z > 0 && z < 14 && !this.solid(x, z))
-          this.addBomb(x, z, 'special', 4, 1 + n * 0.13);
-      }
-      this.notice = 'ONDA VERMELHA!';
+      p.picanha = 3;
+      p.picanhaTime = 8;
+      this.notice = 'PICANHA PARA TODOS!';
     }
     if (this.character === 1) {
       p.turbo = 6;
-      p.shield = 6;
-      this.notice = 'TÁ TURBO, TÁ OK?';
+      p.ram = 6;
+      this.notice = 'MOTOCIATA!';
     }
     if (this.character === 2) {
-      const b = this.addBomb(
-        Math.round(p.x),
-        Math.round(p.z),
-        'special',
-        6,
-        0.7,
-      );
-      if (!b) {
-        for (const b of this.bombs)
-          if (cell(b.x, b.z) === cell(p.x, p.z)) {
-            b.range = 6;
-            b.owner = 'special';
-            b.fuse = 0.7;
-          }
-      }
-      this.notice = 'SAUDAÇÃO EXPLOSIVA!';
+      p.wind = 8;
+      this.notice = 'ESTOCANDO O VENTO!';
     }
     if (this.character === 3) {
-      p.hp = Math.min(3, p.hp + 1);
-      p.shield = 5;
-      this.notice = 'NÃO RENUNCIAREI!';
+      p.vampire = 10;
+      this.notice = 'O VAMPIRO NÃO RENUNCIA!';
     }
     if (this.character === 4) {
-      p.turbo = 5;
-      p.shield = 5;
-      this.range = Math.min(6, this.range + 1);
-      this.notice = 'MENTALIDADE EXPLOSIVA!';
+      this.decoys = [0, 1, 2].map((n) => {
+        const angle = p.yaw + (n - 1) * 1.45;
+        return { id: ++this.serial, x: p.x + Math.sin(angle) * 1.25, z: p.z + Math.cos(angle) * 1.25, skin: this.character, time: 7, walk: n };
+      }).filter((d) => this.canMove(d.x, d.z));
+      this.notice = 'MUDA O MINDSET!';
     }
     if (this.character === 5) {
       this.specialCharge = 0;
@@ -464,17 +553,29 @@ export class Match {
       this.notice = 'MISSÃO: DETONAR!';
     }
     if (this.character === 6) {
-      p.shield = 8;
-      this.notice = 'PROPRIEDADE PROTEGIDA!';
+      this.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };
+      this.notice = 'PROPRIEDADE PRIVADA!';
     }
     if (this.character === 7) {
-      p.hp = Math.min(3, p.hp + 1);
-      p.turbo = 4;
-      this.notice = 'VIRADA NA ARENA!';
+      const fx = Math.abs(Math.sin(p.yaw)) > Math.abs(Math.cos(p.yaw)) ? -Math.sign(Math.sin(p.yaw)) : 0,
+        fz = fx === 0 ? -Math.sign(Math.cos(p.yaw)) : 0,
+        px = Math.round(p.x), pz = Math.round(p.z),
+        spots = [[px - fx, pz - fz], [px - fz, pz + fx], [px + fz, pz - fx]];
+      for (const [x, z] of spots)
+        if (x > 0 && x < SIZE - 1 && z > 0 && z < SIZE - 1 && this.map[z][x] === 0 &&
+          !(Math.abs(p.x - x) <= 0.71 && Math.abs(p.z - z) <= 0.71) &&
+          !this.enemies.some((e) => e.hp > 0 && cell(e.x, e.z) === cell(x, z))) {
+          this.map[z][x] = 3;
+          const barrier = { id: ++this.serial, x, z, time: 8 };
+          this.barricades.push(barrier);
+          this.events.push({ type: 'barricade', ...barrier });
+        }
+      this.notice = 'OCUPAÇÃO DA ARENA!';
     }
     if (this.character === 8) {
-      this.addBomb(Math.round(p.x), Math.round(p.z), 'special', 7, 0.8);
-      this.notice = 'ME AJUDA AÍ!';
+      const speed = 8.5;
+      this.chairs.push({ id: ++this.serial, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * speed, vz: -Math.cos(p.yaw) * speed, time: 2, bounces: 1 });
+      this.notice = 'CADEIRA VOADORA!';
     }
     this.noticeTime = 2.6;
     this.events.push({ type: 'special' });
@@ -587,6 +688,25 @@ export class Match {
     p.invulnerable = Math.max(0, p.invulnerable - dt);
     p.shield = Math.max(0, p.shield - dt);
     p.turbo = Math.max(0, p.turbo - dt);
+    p.picanhaTime = Math.max(0, p.picanhaTime - dt);
+    if (p.picanhaTime <= 0) p.picanha = 0;
+    p.wind = Math.max(0, p.wind - dt);
+    p.vampire = Math.max(0, p.vampire - dt);
+    p.ram = Math.max(0, p.ram - dt);
+    if (this.property) {
+      this.property.time -= dt;
+      if (this.property.time <= 0) this.property = null;
+    }
+    for (const decoy of this.decoys) decoy.time -= dt;
+    this.decoys = this.decoys.filter((decoy) => decoy.time > 0);
+    for (const barrier of this.barricades.slice()) {
+      barrier.time -= dt;
+      if (barrier.time <= 0) {
+        if (this.map[barrier.z]?.[barrier.x] === 3) this.map[barrier.z][barrier.x] = 0;
+        this.barricades.splice(this.barricades.indexOf(barrier), 1);
+        this.events.push({ type: 'barricade-end', id: barrier.id });
+      }
+    }
     const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0),
       side = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const length = Math.hypot(forward, side) || 1,
@@ -622,10 +742,7 @@ export class Match {
         };
         this.bombs.push(b);
         this.explode(b);
-        p.hp = Math.max(0, p.hp - 2);
-        p.invulnerable = 1.6;
-        this.damageFlash = 0.55;
-        this.events.push({ type: 'hurt' });
+        this.hurtPlayer(2, { unblockable: true, ignoreInvulnerable: true });
         this.notice = 'EXPLODIU NA MÃO!';
         this.noticeTime = 2;
       }
@@ -639,12 +756,59 @@ export class Match {
       }
       this.physicsAccumulator -= PHYSICS_STEP;
     }
+    for (const chair of this.chairs.slice()) {
+      chair.time -= dt;
+      const nx = chair.x + chair.vx * dt,
+        nz = chair.z + chair.vz * dt,
+        hitX = this.solid(nx, chair.z),
+        hitZ = this.solid(chair.x, nz);
+      if (hitX || hitZ) {
+        const cx = Math.round(hitX ? nx : chair.x), cz = Math.round(hitZ ? nz : chair.z);
+        if (this.map[cz]?.[cx] === 2) {
+          this.map[cz][cx] = 0;
+          this.events.push({ type: 'crate', x: cx, z: cz });
+          this.score += 25;
+          chair.time = 0;
+        } else if (chair.bounces > 0) {
+          if (hitX) chair.vx *= -0.72;
+          if (hitZ) chair.vz *= -0.72;
+          chair.bounces--;
+          this.events.push({ type: 'chair-bounce', x: chair.x, z: chair.z });
+        } else chair.time = 0;
+      } else {
+        chair.x = nx;
+        chair.z = nz;
+      }
+      const bomb = this.bombs.find((b) => Math.hypot(b.x - chair.x, b.z - chair.z) < 0.55);
+      if (bomb) {
+        bomb.moving = true;
+        bomb.y = Math.max(0.35, bomb.y || 0.23);
+        bomb.vx = chair.vx * 0.72;
+        bomb.vz = chair.vz * 0.72;
+        bomb.vy = 1.2;
+        bomb.flight = 1;
+        chair.time = 0;
+        this.events.push({ type: 'chair-bomb', x: chair.x, z: chair.z });
+      }
+      const victim = this.enemies.find((e) => e.hp > 0 && Math.hypot(e.x - chair.x, e.z - chair.z) < 0.62);
+      if (victim && this.hurtEnemy(victim, 'special')) {
+        const length = Math.hypot(chair.vx, chair.vz) || 1;
+        for (let n = 0; n < 4; n++) this.move(victim, chair.vx / length * 0.24, chair.vz / length * 0.24);
+        victim.invulnerable = 1.35;
+        chair.time = 0;
+        this.notice = 'CADEIRADA!';
+        this.noticeTime = 1.8;
+        this.events.push({ type: 'chair-hit', x: victim.x, z: victim.z });
+      }
+      if (chair.time <= 0) this.chairs.splice(this.chairs.indexOf(chair), 1);
+    }
     for (const f of this.fires) f.life -= dt;
     this.fires = this.fires.filter((f) => f.life > 0);
     const hazard = this.danger();
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       e.invulnerable = Math.max(0, e.invulnerable - dt);
+      e.ramCooldown = Math.max(0, (e.ramCooldown || 0) - dt);
       e.cd -= dt;
       e.think -= dt;
       const endangered = hazard.has(cell(e.x, e.z));
@@ -652,6 +816,7 @@ export class Match {
         e.think = 0.24;
         const targets = [
           ...(p.hp > 0 ? [p] : []),
+          ...this.decoys,
           ...this.enemies.filter((other) => other.id !== e.id && other.hp > 0),
         ];
         const victim =
@@ -714,47 +879,30 @@ export class Match {
           e.think = 0;
         }
       }
+      const ramSpeed = Math.hypot(p.vx, p.vz);
+      if (p.ram > 0 && ramSpeed > 1.1 && e.ramCooldown <= 0 && Math.hypot(p.x - e.x, p.z - e.z) < 0.82) {
+        e.ramCooldown = 1.4;
+        if (this.hurtEnemy(e, 'special')) {
+          for (let n = 0; n < 5; n++) this.move(e, p.vx / ramSpeed * 0.2, p.vz / ramSpeed * 0.2);
+          this.notice = 'ABRE CAMINHO!';
+          this.noticeTime = 1.2;
+          this.events.push({ type: 'ram-hit', x: e.x, z: e.z });
+        }
+      }
     }
     const hit = (a) =>
       this.fires.find(
         (f) => Math.abs(f.x - a.x) < 0.58 && Math.abs(f.z - a.z) < 0.58,
       );
-    if (p.hp > 0 && hit(p) && p.invulnerable <= 0 && p.shield > 0 && this.shieldFlash <= 0) {
-      this.shieldFlash = 0.45;
-      this.events.push({ type: 'shield-block' });
-    }
-    if (p.hp > 0 && hit(p) && p.invulnerable <= 0 && p.shield <= 0) {
-      p.hp--;
-      p.invulnerable = 1.6;
-      this.damageFlash = 0.55;
-      this.events.push({ type: 'hurt' });
+    if (p.hp > 0 && hit(p) && p.invulnerable <= 0) {
+      if (p.wind > 0) {
+        p.invulnerable = 0.75;
+        this.releaseStoredWind();
+      } else this.hurtPlayer();
     }
     for (const e of this.enemies) {
       const fire = hit(e);
-      if (e.hp > 0 && e.invulnerable <= 0 && fire) {
-        e.hp--;
-        e.invulnerable = 0.9;
-        const credited = fire.owner === 'player' || fire.owner === 'special';
-        this.events.push({ type: 'hit', id: e.id, x: e.x, z: e.z, credited, lethal: e.hp <= 0 });
-        if (credited) {
-          this.hitMarker = e.hp <= 0 ? 0.9 : 0.5;
-          this.hitText = e.hp <= 0 ? `${NAMES[e.skin]} ELIMINADO +500` : `${NAMES[e.skin]} · -1 CORAÇÃO`;
-        }
-        if (e.hp <= 0) {
-          if (credited) this.kills++;
-          this.score +=
-            fire.owner === 'player' || fire.owner === 'special' ? 500 : 200;
-          this.chaos = Math.min(100, this.chaos + 12);
-          this.specialCharge = Math.min(1, this.specialCharge + 0.2);
-          this.events.push({ type: 'defeat', id: e.id, x: e.x, z: e.z });
-          this.notice = [
-            'CASSADO PELO CAOS!',
-            'MANDATO ENCERRADO!',
-            'VIROU CONFETE!',
-          ][Math.floor(this.random() * 3)];
-          this.noticeTime = 1.7;
-        }
-      }
+      if (fire) this.hurtEnemy(e, fire.owner);
     }
     for (const item of this.items) item.wait -= dt;
     for (const item of this.items.slice())
@@ -824,7 +972,8 @@ export class Match {
       }
       if (this.damageClock >= 10) {
         this.damageClock = 0;
-        for (const a of [p, ...this.enemies]) if (a.hp > 0) a.hp--;
+        if (p.hp > 0) this.hurtPlayer(1, { unblockable: true, ignoreInvulnerable: true });
+        for (const a of this.enemies) if (a.hp > 0) a.hp--;
       }
     }
     this.resolveWinner();
@@ -862,6 +1011,14 @@ export class Match {
       combo: this.combo,
       shield: this.player.shield > 0,
       shieldTime: this.player.shield,
+      picanha: this.player.picanha,
+      picanhaTime: this.player.picanhaTime,
+      windTime: this.player.wind,
+      vampireTime: this.player.vampire,
+      ramTime: this.player.ram,
+      propertyTime: this.property?.time || 0,
+      decoys: this.decoys.length,
+      barricades: this.barricades.length,
       wave: 1,
     };
   }

@@ -111,19 +111,71 @@ test('three player bombs maximum and refill after explosion', () => {
   g.explode(g.bombs[0]);
   assert.ok(g.snapshot().bombs > 0);
 });
-test('all nine specials consume charge and recharge', () => {
+test('all nine specials create a distinct gameplay state and recharge', () => {
   for (let c = 0; c < 9; c++) {
     const g = clean();
     g.character = c;
-    g.player.hp = 2;
+    g.player.x = 7;
+    g.player.z = 7;
     assert.equal(g.special(), true);
     assert.equal(g.special(), false);
-    assert.ok(g.player.shield > 0);
-    if (c === 3) assert.equal(g.player.hp, 3);
+    const active = [
+      g.player.picanha,
+      g.player.ram,
+      g.player.wind,
+      g.player.vampire,
+      g.decoys.length,
+      c === 5 ? 1 : 0,
+      g.property?.time || 0,
+      g.barricades.length,
+      g.chairs.length,
+    ];
+    assert.ok(active[c] > 0);
     assert.equal(g.specialCharge, 0);
     g.tick(0.05);
     assert.ok(g.specialCharge > 0);
   }
+});
+test('Lula picanha shield spends one visible charge per hit', () => {
+  const g = clean();g.character=0;g.special();
+  for(let remaining=2;remaining>=0;remaining--){g.player.invulnerable=0;g.hurtPlayer();assert.equal(g.player.hp,3);assert.equal(g.player.picanha,remaining);}
+  g.player.invulnerable=0;g.hurtPlayer();assert.equal(g.player.hp,2);
+});
+test('Dilma stores one blast and returns a directional wind attack', () => {
+  const g=clean();g.character=2;g.player.x=7;g.player.z=7;g.special();g.player.invulnerable=0;
+  g.fires=[{id:123,x:7,z:7,life:.7,owner:'invader'}];g.tick(.05);
+  assert.equal(g.player.hp,3);assert.equal(g.player.wind,0);assert.ok(g.fires.some(f=>f.owner==='special'));
+});
+test('Temer vampire pact denies one lethal blow and relocates him', () => {
+  const g=clean();g.character=3;g.player.x=7;g.player.z=7;g.special();g.player.invulnerable=0;
+  g.hurtPlayer(3,{unblockable:true});
+  assert.equal(g.player.hp,1);assert.equal(g.player.vampire,0);assert.ok(g.player.invulnerable>0);
+  assert.ok(g.events.some(e=>e.type==='vampire-revive'));
+});
+test('Bolsonaro motociata damages a rival on contact', () => {
+  const g=clean();g.character=1;g.player.x=7;g.player.z=7;g.enemies[0].x=7.4;g.enemies[0].z=7;const hp=g.enemies[0].hp;
+  g.special();g.tick(.05);assert.equal(g.enemies[0].hp,hp);
+  g.tick(.05,{forward:true});assert.equal(g.enemies[0].hp,hp-1);assert.ok(g.events.some(e=>e.type==='ram-hit'));
+});
+test('Kogos property line blocks outsiders but lets them retreat', () => {
+  const g=clean();g.character=6;g.player.x=7;g.player.z=7;g.special();const e=g.enemies[0];e.x=4.5;e.z=7;
+  g.move(e,.4,0);assert.equal(e.x,4.5);g.move(e,-.4,0);assert.equal(e.x,4.1);
+});
+test('Boulos occupation creates three temporary solid barricades', () => {
+  const g=clean();g.character=7;g.player.x=7;g.player.z=7;g.special();
+  assert.equal(g.barricades.length,3);assert.ok(g.barricades.every(b=>g.map[b.z][b.x]===3));
+  for(let i=0;i<161;i++)g.tick(.05);assert.equal(g.barricades.length,0);
+});
+test('Boulos occupation never creates a barricade over the player collider', () => {
+  const g=clean();g.character=7;g.player.x=6.51;g.player.z=6.51;g.player.yaw=0;g.special();
+  assert.ok(g.barricades.every(b=>Math.abs(g.player.x-b.x)>.71||Math.abs(g.player.z-b.z)>.71));
+  const before=[g.player.x,g.player.z];for(let i=0;i<20;i++)g.tick(.05,{forward:true});
+  assert.notDeepEqual([g.player.x,g.player.z],before);
+});
+test('Datena chair flies forward, hits once and stuns the target', () => {
+  const g=clean();g.character=8;g.player.x=5;g.player.z=5;g.player.yaw=-Math.PI/2;g.enemies[0].x=7;g.enemies[0].z=5;const hp=g.enemies[0].hp;
+  g.special();for(let i=0;i<8;i++)g.tick(.05);
+  assert.equal(g.enemies[0].hp,hp-1);assert.ok(g.enemies[0].invulnerable>1);assert.equal(g.chairs.length,0);
 });
 test('pause freezes all timers and movement', () => {
   const g = clean();

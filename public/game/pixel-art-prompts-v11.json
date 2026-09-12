@@ -1,0 +1,22 @@
+{
+  "tool": "Built-in image_gen (Higgsfield generation tools unavailable)",
+  "reference": "characters-voxel.png",
+  "assets": [
+    {
+      "name": "bukele-pixel-v11.png",
+      "prompt": "Use case: stylized-concept. Create one game sprite of Nayib Bukele, full body miniature caricature, same EXACT rich pixel-art look as the reference game's characters: big expressive head, short cute stocky body, detailed clustered pixels, warm highlights, dark outline, navy jacket, black trousers and shoes, short dark beard, dark backwards baseball cap. Confident relaxed posture, one hand holding a little golden jail key. Front three-quarter view, complete head and feet visible, centered with 10% empty margin, square composition. Single character only, no other objects, no typography, no watermark. Genuinely transparent background, not a drawn checkerboard. Reference image is only a STYLE reference, don't copy its people. Production game cutout sprite."
+    },
+    {
+      "name": "steak",
+      "prompt": "Use case: stylized-concept. Production videogame pickup sprite, matching EXACTLY the reference's rich chunky pixel-art, visible square pixel clusters, dark outlines, warm rim light, saturated colors, dimensional shading, cute miniature proportions. Single object centered, complete silhouette with 12% empty margin, square image, genuinely transparent background (no checkerboard painted), no text, no watermark, no characters. Reference is only STYLE input. Subject: A juicy grilled Brazilian picanha steak, triangular cut, golden creamy fat cap, reddish brown grilled center and dark sear stripes, three-quarter view, very readable as meat, appetizing."
+    },
+    {
+      "name": "chair",
+      "prompt": "Use case: stylized-concept. Production videogame pickup sprite, matching EXACTLY the reference's rich chunky pixel-art, visible square pixel clusters, dark outlines, warm rim light, saturated colors, dimensional shading, cute miniature proportions. Single object centered, complete silhouette with 12% empty margin, square image, genuinely transparent background (no checkerboard painted), no text, no watermark, no characters. Reference is only STYLE input. Subject: A sturdy wooden chair with red padded seat and back, front three-quarter view showing four legs, chunky game proportions, warm brown wood and golden highlights."
+    },
+    {
+      "name": "sword",
+      "prompt": "Use case: stylized-concept. Production videogame pickup sprite, matching EXACTLY the reference's rich chunky pixel-art, visible square pixel clusters, dark outlines, warm rim light, saturated colors, dimensional shading, cute miniature proportions. Single object centered, complete silhouette with 12% empty margin, square image, genuinely transparent background (no checkerboard painted), no text, no watermark, no characters. Reference is only STYLE input. Subject: A powerful medieval knight sword held diagonally pointing upper right, long silver blue blade, bright sharp tip, golden crossguard, dark blue wrapped handle, clearly sword shaped, no shield."
+    }
+  ]
+}

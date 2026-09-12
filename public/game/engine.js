@@ -1,8 +1,12 @@
 import * as T from '../vendor/three.module.js';
-import { createInvaderView } from './invaders-v7.js?v=8';
-import { createPickupFactory } from './pickups.js?v=6';
+import { createPixelAssets } from './pixel-assets.js?v=11';
+import { createInvaderView } from './invaders-v7.js?v=11';
+import { createSoundtrack } from './soundtrack.js?v=11';
+import { arrivalCamera } from './cinematic.mjs?v=11';
+import { INVASION_INTRO } from './invasion.mjs?v=11';
+import { createPickupFactory } from './pickups.js?v=11';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=9';
+import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=11';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -383,9 +387,7 @@ export function createGame(canvas, onState, onError) {
   }
   function chairModel() {
     const root=new T.Group();
-    box(root,1.12,.18,1.04,0,.72,0,mats.woodLight);
-    box(root,1.12,1.12,.16,0,1.3,.46,mats.wood);
-    for(const x of [-.44,.44])for(const z of [-.36,.36])box(root,.13,.78,.13,x,.34,z,mats.steel);
+    const sprite=pixelAsset('chair',1.9);sprite.position.y=.9;root.add(sprite);
     return root;
   }
   function makeBarricade(e) {
@@ -616,6 +618,10 @@ export function createGame(canvas, onState, onError) {
     aimTarget.position.set(end.x * TILE, end.y * TILE - 0.45, end.z * TILE);
   }
   const hand = new T.Group();
+  const pixelAsset=createPixelAssets({geometries,materials,textures});
+  const equippedSword=pixelAsset('sword',.85);equippedSword.position.set(-.4,-.12,-.8);hand.add(equippedSword);
+  const steakShield=new T.Group();camera.add(steakShield);
+  const shieldSteaks=Array.from({length:5},()=>{const steak=pixelAsset('steak',.19);steakShield.add(steak);return steak;});
   camera.add(hand);
   box(hand, 0.24, 0.35, 0.31, 0.34, -0.4, -0.55, mats.skin);
   box(hand, 0.28, 0.46, 0.34, 0.39, -0.67, -0.48, mats.dark);
@@ -648,8 +654,8 @@ export function createGame(canvas, onState, onError) {
   }
   let audio = null,
     master = null,
-    nextBeat = 0,
-    step = 0;
+    soundtrack = null,
+    lastCountdown = -1;
   function initAudio() {
     if (!audio) {
       const A = window.AudioContext || window.webkitAudioContext;
@@ -657,7 +663,11 @@ export function createGame(canvas, onState, onError) {
       audio = new A();
       master = audio.createGain();
       master.gain.value = muted ? 0 : 0.32;
-      master.connect(audio.destination);
+      const compressor=audio.createDynamicsCompressor();
+      compressor.threshold.value=-16;compressor.knee.value=20;compressor.ratio.value=5;
+      compressor.attack.value=.003;compressor.release.value=.2;
+      master.connect(compressor);compressor.connect(audio.destination);
+      soundtrack=createSoundtrack(audio,master);
     }
     audio.resume().catch(() => {});
   }
@@ -668,6 +678,7 @@ export function createGame(canvas, onState, onError) {
     gain = 0.15,
     at = 0,
     end,
+    pan = 0,
   ) {
     if (!audio || muted) return;
     const o = audio.createOscillator(),
@@ -676,14 +687,17 @@ export function createGame(canvas, onState, onError) {
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
     if (end) o.frequency.exponentialRampToValueAtTime(end, t + duration);
-    g.gain.setValueAtTime(gain, t);
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + .006);
     g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
     o.connect(g);
-    g.connect(master);
+    const stereo=audio.createStereoPanner();stereo.pan.value=pan;
+    g.connect(stereo);stereo.connect(master);
+    o.onended=()=>{o.disconnect();g.disconnect();stereo.disconnect();};
     o.start(t);
     o.stop(t + duration);
   }
-  function noise(duration = 0.3) {
+  function noise(duration = 0.3, level = 1, pan = 0) {
     if (!audio || muted) return;
     const buffer = audio.createBuffer(
         1,
@@ -699,13 +713,16 @@ export function createGame(canvas, onState, onError) {
     filter.type = 'lowpass';
     filter.frequency.value = 1600;
     src.buffer = buffer;
-    g.gain.value = 0.6;
+    g.gain.value = 0.6 * level;
     src.connect(filter);
     filter.connect(g);
-    g.connect(master);
+    const stereo=audio.createStereoPanner();stereo.pan.value=pan;
+    g.connect(stereo);stereo.connect(master);
+    src.onended=()=>{src.disconnect();filter.disconnect();g.disconnect();stereo.disconnect();};
     src.start();
   }
   function speak(text) {
+    soundtrack?.duck(2.5);
     if (muted || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -723,6 +740,7 @@ export function createGame(canvas, onState, onError) {
     for (const e of game.events.splice(0)) {
       if (e.type === 'reset') continue;
       if (e.type === 'invasion-warning' || e.type === 'invasion-beep') {
+        soundtrack?.duck(.8);
         tone(420,.42,'sawtooth',.2,0,980);
         tone(980,.4,'sawtooth',.18,.42,420);
       }
@@ -735,7 +753,17 @@ export function createGame(canvas, onState, onError) {
         }
       }
       if(e.type==='invasion-target') {
-        tone(1300,.2,'square',.18);tone(1500,.2,'square',.18,.3);
+        if(e.kind==='kim') { tone(220,.9,'sawtooth',.13,0,1400);noise(.22,.2); }
+        tone(1300,.1,'sine',e.player ? .2 : .08);tone(1500,.1,'sine',e.player ? .2 : .08,.25);
+      }
+      if(e.type==='missile-launch') { soundtrack?.duck(.6);tone(80,.7,'sawtooth',.2,0,480);noise(.4,.35); }
+      if(e.type==='cage-capture') {tone(180,.25,'square',e.player?.22:.08,0,70);noise(.12,.18);}
+      if(e.type==='cage-release'&&e.player) {[520,780].forEach((n,i)=>tone(n,.16,'triangle',.15,i*.12));}
+      if(e.type==='sword-hit') {noise(.07,.16);tone(1300,.1,'triangle',.15,0,320);}
+      if(e.type==='trump-charge') {soundtrack?.duck(2.4);tone(200,.3,'triangle',.2,0,400);}
+      if(e.type==='trump-beep') {
+        const distance=Math.hypot(e.x-game.player.x,e.z-game.player.z);
+        tone(500+e.charge*1100,.075,'sine',.28/(1+distance*.3));
       }
       if(e.type==='invasion-exit') tone(650,.8,'triangle',.18,0,160);
       if (e.type === 'pin') {
@@ -756,8 +784,11 @@ export function createGame(canvas, onState, onError) {
         shake = Math.max(shake, reduced ? 0 : .07 * Math.max(0,1-distance/6));
         flash.position.set(e.x * TILE, 2, e.z * TILE);
         flash.intensity = 35;
-        noise(0.34);
-        tone(85, 0.35, 'sine', 0.7, 0, 25);
+        const level=1/(1+distance*.2);
+        const pan=Math.max(-.85,Math.min(.85,((e.x-game.player.x)*Math.cos(game.player.yaw)-(e.z-game.player.z)*Math.sin(game.player.yaw))/8));
+        soundtrack?.duck(.4);
+        noise(e.style==='missile' ? .5 : .34,level,pan);
+        tone(e.style==='missile'?115:85,.4,'sine',.7*level,0,25,pan);
       }
       if (e.type === 'crate') {
         const key = cell(e.x, e.z);
@@ -854,7 +885,7 @@ export function createGame(canvas, onState, onError) {
     for(const [id,g] of chairs)if(!activeChairs.has(id)){releaseObject(g);chairs.delete(id);}
     for(const e of game.chairs){
       let g=chairs.get(e.id);if(!g){g=chairModel();dynamic.add(g);chairs.set(e.id,g);}
-      g.position.set(e.x*TILE,.2,e.z*TILE);g.rotation.y=Math.atan2(e.vx,e.vz);g.rotation.z+=dt*5;
+      g.position.set(e.x*TILE,.2,e.z*TILE);g.rotation.y=Math.atan2(camera.position.x-g.position.x,camera.position.z-g.position.z);g.rotation.z+=dt*5;
     }
     const activeBarricades=new Set(game.barricades.map(e=>e.id));
     for(const [id,g] of barricadeBodies)if(!activeBarricades.has(id)){releaseObject(g);barricadeBodies.delete(id);}
@@ -1063,6 +1094,7 @@ export function createGame(canvas, onState, onError) {
     target.addEventListener(type, fn, options);
     listeners.push(() => target.removeEventListener(type, fn, options));
   }
+  bind(window, 'pointerdown', initAudio, { once: true });
   bind(window, 'resize', resize);
   bind(document, 'keydown', (e) => {
     if (
@@ -1159,9 +1191,12 @@ export function createGame(canvas, onState, onError) {
       'A conexão com o 3D foi interrompida. Recarregue a página para continuar.',
     );
   });
-  const makePickup=createPickupFactory({mesh,box,material,batchStatic,geometries,materials});
+  const makePickup=createPickupFactory({mesh,box,material,batchStatic,geometries,materials,textures});
   const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures,onError});
   function loop(now) {
+    steakShield.visible=game.player.picanhaTime>0&&game.phase==='playing'&&game.invasion.stage!=='arrival';
+    shieldSteaks.forEach((steak,i)=>{const a=now*.001+i*Math.PI*2/5;steak.position.set(Math.cos(a)*.52,Math.sin(a)*.3,-1);steak.rotation.z=Math.sin(a)*.15;});
+    equippedSword.visible=game.swordTime>0&&!game.heldBomb;equippedSword.rotation.z=-game.swordSwing*4;
     if (dead) return;
     const elapsedFrame = Math.min((now - last) / 1000, 0.25);
     const dt = Math.min(elapsedFrame, 0.05);
@@ -1215,12 +1250,17 @@ export function createGame(canvas, onState, onError) {
         }
       }
       invaderView.sync(camera,dt);
+      if(game.countdown>0 && !reduced) {
+        const t=1-game.countdown/3,ease=t*t*(3-2*t);
+        camera.position.set(p.x*TILE+(1-ease)*8,1.8+(1-ease)*10,p.z*TILE+(1-ease)*8);
+        camera.lookAt(p.x*TILE-Math.sin(p.yaw)*5,1.8,p.z*TILE-Math.cos(p.yaw)*5);
+        hand.visible=false;
+      }
       if(game.invasion.stage==='arrival') {
-        const focus=invaderView.focus;
-        if(game.invasion.kind==='putin') camera.position.set(reduced?26:focus.x+7,reduced?19:focus.y+4,focus.z+12);
-        else camera.position.set(focus.x+(reduced?0:Math.sin(game.invasion.intro)*1.2),focus.y+1.4,focus.z+9);
-        camera.lookAt(focus);
-        camera.fov=58;camera.updateProjectionMatrix();hand.visible=false;
+        const shot=arrivalCamera(game.invasion.kind,1-game.invasion.intro/INVASION_INTRO,invaderView.focus,reduced);
+        camera.position.set(shot.position.x,shot.position.y,shot.position.z);
+        camera.lookAt(shot.target.x,shot.target.y,shot.target.z);
+        camera.fov=shot.fov;camera.updateProjectionMatrix();hand.visible=false;
         invaderView.sync(camera);
       }
       kick = Math.max(0, kick - dt * 2);
@@ -1241,16 +1281,6 @@ export function createGame(canvas, onState, onError) {
         tone(game.heldBomb.fuse < 1 ? 1400 : 900, 0.045, 'square', 0.12);
         nextFuseBeep = clock + (game.heldBomb.fuse < 1 ? 0.13 : 0.45);
       }
-      if (audio && audio.currentTime > nextBeat) {
-        nextBeat = audio.currentTime + 0.19;
-        const notes = [
-          130.81, 155.56, 196, 155.56, 146.83, 174.61, 220, 174.61,
-        ];
-        tone(notes[step % 8], 0.14, 'triangle', 0.1);
-        if (step % 4 === 0) tone(70, 0.12, 'sine', 0.25, 0, 35);
-        if (step % 2 === 1) tone(1100, 0.035, 'square', 0.017);
-        step++;
-      }
     } else if (game.phase === 'menu') {
       hand.visible = false;
       const a = 0.68 + Math.sin(clock * 0.09) * 0.1;
@@ -1263,6 +1293,11 @@ export function createGame(canvas, onState, onError) {
       syncWorld(dt);
     } else hand.visible = false;
     invaderView.sync(camera);
+    soundtrack?.update(game,muted);
+    if(game.phase==='playing') {
+      const count=Math.ceil(game.countdown);
+      if(count!==lastCountdown){lastCountdown=count;tone(count?440:880,count ? .12 : .35,'triangle',.25);}
+    }
     updateAim(dt);
     hudClock += dt;
     if (hudClock > 0.05) {
@@ -1284,11 +1319,12 @@ export function createGame(canvas, onState, onError) {
       kick = 0;
       shake = 0;
       initAudio();
+      soundtrack?.reset();lastCountdown=-1;
       lock();
       emit();
       setTimeout(() => {
         if (!dead && game.phase === 'playing') game.speak();
-      }, 700);
+      }, 3200);
     },
     pause,
     resume,
@@ -1319,7 +1355,7 @@ export function createGame(canvas, onState, onError) {
     },
     mute(value) {
       muted = value;
-      if (master) master.gain.value = value ? 0 : 0.32;
+      if (master) master.gain.setTargetAtTime(value ? 0 : .32,audio.currentTime,.025);
       if (value) window.speechSynthesis?.cancel();
     },
     destroy() {
@@ -1328,6 +1364,7 @@ export function createGame(canvas, onState, onError) {
       cancelAnimationFrame(frame);
       unlock();
       listeners.forEach((f) => f());
+      soundtrack?.dispose();
       audio?.close();
       window.speechSynthesis?.cancel();
       radar.remove();

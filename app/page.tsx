@@ -26,7 +26,7 @@ const cast = [
     color: '#ff506d',
     quote: 'Nunca antes na história deste país',
     special: 'Picanha para todos',
-    desc: 'Três peças de picanha bloqueiam um impacto cada.',
+    desc: 'Escudo de picanha: 4 segundos invulnerável. Encontre mais nas caixas!',
     source:
       'https://www1.folha.uol.com.br/fsp/mundo/67032-bordao-de-lula-nunca-antes-na-historia-ganha-versao-em-peca-de-tv-de-chavez.shtml',
   },
@@ -86,7 +86,7 @@ const cast = [
     color: '#eded9d',
     quote: 'Imposto é roubo',
     special: 'Propriedade privada',
-    desc: 'Demarca uma área protegida que barra invasores.',
+    desc: 'Protege sua área. Encontre a espada: golpes rápidos de 2 corações por 8 segundos.',
     source:
       'https://mises.org.br/artigos/1563/impostoerouboestadoequadrilhaeoutrasconsideracoes/',
   },
@@ -112,7 +112,7 @@ const cast = [
   },
 ];
 const initial = {
-  invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:14,duration:14,intro:0,targeted:false,shots:0 },
+  invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:14,duration:14,intro:0,targeted:false,shots:0,wave:1,charging:false,charge:0,caged:0 },
   phase: 'menu',
   countdown: 0,
   holding: false,
@@ -138,6 +138,8 @@ const initial = {
   shield: false,
   shieldTime: 0,
   picanha: 0,
+  specialItems: 0,
+  swordTime: 0,
   picanhaTime: 0,
   windTime: 0,
   vampireTime: 0,
@@ -186,7 +188,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=9';
+    script.src = '/game/boot.js?v=11';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -382,6 +384,7 @@ export default function Home() {
             </RadioGroup>
           </div>
           <aside className="arena-label">
+            <div className="lobby-champion" aria-hidden="true"><div className={`portrait portrait-${selected}`} /></div>
             <div className="arena-tag">
               <span /> ARENA 01
             </div>
@@ -418,17 +421,19 @@ export default function Home() {
       {!menu && (
         <>
           {['playing','spectating','paused'].includes(state.phase) && ['warning','arrival','active'].includes(state.invasion.stage) && (
-            <aside className={`invasion-alert invasion-${state.invasion.stage}`} aria-label={`Invasão de ${state.invasion.kind === 'putin' ? 'Putin' : state.invasion.kind === 'kim' ? 'Kim Jong-un' : 'Trump'}`}>
+            <aside className={`invasion-alert invasion-${state.invasion.stage}`} aria-label={`Invasão de ${state.invasion.kind === 'putin' ? 'Putin' : state.invasion.kind === 'kim' ? 'Kim Jong-un' : state.invasion.kind === 'bukele' ? 'Bukele' : 'Trump'}`}>
               <div className={`invader-portrait invader-${state.invasion.kind}`} />
               <div className="invasion-copy">
-                <span>{state.invasion.stage === 'warning' ? '⚠ INVASÃO DETECTADA' : state.invasion.stage === 'arrival' ? 'CHEGADA DO CONVIDADO' : 'INVASOR NA ARENA'}</span>
-                <strong>{state.invasion.kind === 'putin' ? 'PUTIN' : state.invasion.kind === 'kim' ? 'KIM JONG-UN' : 'TRUMP'} <b>{Math.ceil(state.invasion.stage === 'warning' ? state.invasion.warning : state.invasion.remaining)}s</b></strong>
-                <small>{state.invasion.stage === 'warning' ? 'Prepare-se. O circo ganhou um convidado.' : state.invasion.kind === 'putin' ? 'Duas bombas · saia dos círculos vermelhos!' : state.invasion.kind === 'kim' ? 'Três foguetes · saia das marcas laranja!' : 'Bombas pelo caminho. Mantenha distância!'}</small>
+                <span>{state.invasion.stage === 'warning' ? state.invasion.wave > 1 ? '⚠ ELES VOLTARAM · SEGUNDA INVASÃO' : '⚠ INVASÃO DETECTADA' : state.invasion.stage === 'arrival' ? 'CHEGADA DO CONVIDADO' : 'INVASOR NA ARENA'}</span>
+                <strong>{state.invasion.kind === 'putin' ? 'PUTIN' : state.invasion.kind === 'kim' ? 'KIM JONG-UN' : state.invasion.kind === 'bukele' ? 'BUKELE' : 'TRUMP'} <b>{Math.ceil(state.invasion.stage === 'warning' ? state.invasion.warning : state.invasion.stage === 'arrival' ? state.invasion.intro : state.invasion.remaining)}s</b></strong>
+                <small>{state.invasion.stage === 'warning' ? 'Prepare-se. O circo ganhou um convidado.' : state.invasion.kind === 'putin' ? 'Duas bombas · saia dos círculos vermelhos!' : state.invasion.kind === 'kim' ? 'Mísseis no ar · impacto circular nas marcas laranja!' : state.invasion.kind === 'bukele' ? 'Não deixe alcançar você: gaiola por 6 segundos!' : state.invasion.charging ? 'PAROU E FICOU VERMELHO? CORRA!' : 'Ele está procurando alguém. Não deixe chegar perto!'}</small>
                 <Progress className="invasion-progress" aria-label={state.invasion.stage === 'warning' ? 'Chegada do invasor' : 'Tempo restante da invasão'} value={state.invasion.stage === 'warning' ? (1-state.invasion.warning/7)*100 : state.invasion.remaining/state.invasion.duration*100} />
               </div>
             </aside>
           )}
-          {state.invasion.stage === 'arrival' && ['playing','spectating','paused'].includes(state.phase) && <div className="flyby-caption"><span>VISITA NADA DIPLOMÁTICA</span><strong>{state.invasion.kind === 'putin' ? 'PUTIN CHEGOU PELO AR' : state.invasion.kind === 'kim' ? 'KIM TROUXE OS FOGUETES' : 'TRUMP CHEGOU SE ACHANDO'}</strong><small>A partida continua após a chegada</small></div>}
+          {state.invasion.stage === 'arrival' && ['playing','spectating','paused'].includes(state.phase) && <div className="flyby-caption"><span>VISITA NADA DIPLOMÁTICA</span><strong>{state.invasion.kind === 'putin' ? 'PUTIN CHEGOU PELO AR' : state.invasion.kind === 'kim' ? 'PEQUENO KIM. ENORME PROBLEMA.' : state.invasion.kind === 'bukele' ? 'BUKELE TROUXE A GAIOLA' : 'TRUMP CHEGOU SE ACHANDO'}</strong><small>{state.invasion.kind === 'kim' ? 'Ele fica de boa. Os mísseis é que vão passear.' : 'A partida continua após a chegada'}</small></div>}
+          {state.invasion.caged > 0 && playing && <div className="targeted-alert cage-alert" role="status">PRESO POR BUKELE · {state.invasion.caged.toFixed(1)}s <small>Você ainda pode mirar, lançar bombas e usar o especial.</small></div>}
+          {state.invasion.charging && state.invasion.stage === 'active' && playing && <div className="targeted-alert trump-charge-alert">TRUMP VAI EXPLODIR · {Math.max(0,2.4*(1-state.invasion.charge)).toFixed(1)}s · AFASTE-SE!</div>}
           {state.invasion.targeted && ['playing','spectating'].includes(state.phase) && <div className="targeted-alert" role="alert">{state.invasion.kind === 'kim' ? 'FOGUETE NA SUA DIREÇÃO' : 'NA MIRA DE PUTIN'} · SAIA DO CÍRCULO!</div>}
           <div className="hud">
             <div className="player-status">
@@ -442,7 +447,8 @@ export default function Home() {
                     </span>
                   ))}
                   {state.shield && <span className="shield-status" aria-label={`Escudo: ${Math.ceil(state.shieldTime)} segundos`}><Shield size={23} /><small>{Math.ceil(state.shieldTime)}s</small></span>}
-                  {state.picanha > 0 && <span className="special-effect picanha-effect" aria-label={`${state.picanha} cargas de escudo de picanha`}>🥩<small>×{state.picanha}</small></span>}
+                  {state.picanhaTime > 0 && <span className="special-effect picanha-effect" aria-label="Invulnerável"><img src="/item-steak-pixel-v11.png" width="28" height="28" alt="Picanha"/><small>{state.picanhaTime.toFixed(1)}s</small></span>}
+                  {state.swordTime > 0 && <span className="special-effect"><img src="/item-sword-pixel-v11.png" width="28" height="28" alt="Espada"/><small>{state.swordTime.toFixed(1)}s · MIRE DE PERTO</small></span>}
                   {state.windTime > 0 && <span className="special-effect wind-effect" aria-label={`Vento estocado por ${Math.ceil(state.windTime)} segundos`}>VENTO <small>{Math.ceil(state.windTime)}s</small></span>}
                   {state.vampireTime > 0 && <span className="special-effect vampire-effect" aria-label={`Pacto imortal por ${Math.ceil(state.vampireTime)} segundos`}>🦇<small>{Math.ceil(state.vampireTime)}s</small></span>}
                   {state.ramTime > 0 && <span className="special-effect ram-effect" aria-label={`Motociata por ${Math.ceil(state.ramTime)} segundos`}>MOTO <small>{Math.ceil(state.ramTime)}s</small></span>}
@@ -525,9 +531,9 @@ export default function Home() {
             >
               <Zap />
               <span>
-                {ch.special}
+                {state.specialItems>0 ? (selected===0?'Picanha coletada':selected===6?'Equipar espada':'Lançar cadeira') : ch.special}
                 <small>
-                  {state.special >= 1
+                  {state.specialItems>0 ? `${state.specialItems} ITEM${state.specialItems>1?'S':''} · E PARA USAR` : state.special >= 1
                     ? 'ESPECIAL PRONTO'
                     : `CARREGANDO ${Math.floor(state.special * 100)}%`}
                 </small>
@@ -580,9 +586,11 @@ export default function Home() {
       )}
       {!menu && state.countdown > 0 && (
         <div className="round-countdown">
-          <small>PREPARE O SEU MANDATO</small>
-          <strong>{Math.ceil(state.countdown)}</strong>
-          <span>Seja o último sobrevivente.</span>
+          <div className={`portrait countdown-portrait portrait-${selected}`} />
+          <small>{Math.ceil(state.countdown)===3 ? 'ENTRANDO NA ARENA' : Math.ceil(state.countdown)===2 ? 'PREPARE O PAVIO' : 'VALE A FAIXA!'}</small>
+          <strong key={Math.ceil(state.countdown)}>{Math.ceil(state.countdown)}</strong>
+          <span>{ch.name} · {ch.special}</span>
+          <div className="countdown-track"><i style={{transform:`scaleX(${1-state.countdown/3})`}} /></div>
         </div>
       )}
       {playing && state.holding && (

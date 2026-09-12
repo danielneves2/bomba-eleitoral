@@ -1,5 +1,7 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
-import { Invasion } from './invasion.mjs?v=7';
+import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=11';
+import { circleCells } from './impact.mjs?v=11';
+import { clearSight } from './impact.mjs?v=11';
 export const SIZE = 15;
 export const QUOTES = [
   'Nunca antes na história deste país',
@@ -245,6 +247,9 @@ export class Match {
     this.chaos = 0;
     this.cooldown = 0;
     this.specialCharge = 1;
+    this.specialItems = 0;
+    this.nextSpecialItem = 12 + this.random()*8;
+    this.swordTime = 0; this.swordCooldown = 0; this.swordSwing = 0;
     this.quote = '';
     this.quoteTime = 0;
     this.notice = 'BEM-VINDO AO CIRCO!';
@@ -298,6 +303,7 @@ export class Match {
     ].some(([dx, dz]) => this.solid(x + dx, z + dz));
   }
   move(actor, dx, dz) {
+    if(this.invasion.cages.some(c=>c.victim===actor&&c.time>0)) { actor.vx=0;actor.vz=0;return; }
     const propertyBlocks = (x, z) => {
       if (!this.property || this.property.time <= 0 || actor === this.player) return false;
       const before = Math.hypot(actor.x - this.property.x, actor.z - this.property.z);
@@ -445,16 +451,8 @@ export class Match {
   }
   hurtPlayer(amount = 1, { unblockable = false, ignoreInvulnerable = false } = {}) {
     const p = this.player;
+    if(p.picanhaTime>0) {this.shieldFlash=.3;return false;}
     if (p.hp <= 0 || (!ignoreInvulnerable && p.invulnerable > 0)) return false;
-    if (!unblockable && p.picanha > 0 && p.picanhaTime > 0) {
-      p.picanha--;
-      p.invulnerable = 0.75;
-      this.shieldFlash = 0.45;
-      this.notice = p.picanha ? `PICANHA BLOQUEOU · ${p.picanha} RESTANTE${p.picanha > 1 ? 'S' : ''}` : 'ACABOU A PICANHA!';
-      this.noticeTime = 1.4;
-      this.events.push({ type: 'picanha-block', remaining: p.picanha });
-      return false;
-    }
     if (!unblockable && (p.shield > 0 || this.insideProperty(p))) {
       p.invulnerable = 0.75;
       this.shieldFlash = 0.45;
@@ -476,7 +474,7 @@ export class Match {
     this.events.push({ type: 'hit', id: enemy.id, x: enemy.x, z: enemy.z, credited, lethal: enemy.hp <= 0 });
     if (credited) {
       this.hitMarker = enemy.hp <= 0 ? 0.9 : 0.5;
-      this.hitText = enemy.hp <= 0 ? `${NAMES[enemy.skin]} ELIMINADO +500` : `${NAMES[enemy.skin]} · -1 CORAÇÃO`;
+      this.hitText = enemy.hp <= 0 ? `${NAMES[enemy.skin]} ELIMINADO +500` : `${NAMES[enemy.skin]} · -${amount} CORAÇÕES`;
     }
     if (enemy.hp <= 0) {
       if (credited) this.kills++;
@@ -513,16 +511,17 @@ export class Match {
       this.phase !== 'playing' ||
       this.countdown > 0 ||
       this.player.hp <= 0 ||
-      this.specialCharge < 1
+      (this.specialCharge < 1 && this.specialItems < 1)
     )
       return false;
-    this.specialCharge = 0;
+    const item = this.specialItems>0;
+    if(item) this.specialItems--; else this.specialCharge = 0;
     this.quoteTime = 0;
     this.speak();
     const p = this.player;
     if (this.character === 0) {
       p.picanha = 3;
-      p.picanhaTime = 8;
+      p.picanhaTime = 4;
       this.notice = 'PICANHA PARA TODOS!';
     }
     if (this.character === 1) {
@@ -553,8 +552,8 @@ export class Match {
       this.notice = 'MISSÃO: DETONAR!';
     }
     if (this.character === 6) {
-      this.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };
-      this.notice = 'PROPRIEDADE PRIVADA!';
+      if(item) {this.swordTime=8;this.swordCooldown=0;this.notice='ESPADA EQUIPADA · MIRE DE PERTO!';}
+      else {this.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };this.notice = 'PROPRIEDADE PRIVADA!';}
     }
     if (this.character === 7) {
       const fx = Math.abs(Math.sin(p.yaw)) > Math.abs(Math.cos(p.yaw)) ? -Math.sign(Math.sin(p.yaw)) : 0,
@@ -598,7 +597,7 @@ export class Match {
             id: ++this.serial,
             x,
             z,
-            type: Math.floor(this.random() * 3),
+            type: [0,6,8].includes(this.character)&&this.random()<.4 ? ({0:3,8:4,6:5}[this.character]) : Math.floor(this.random() * 3),
             wait: 0.9,
           });
       }
@@ -622,7 +621,9 @@ export class Match {
   danger() {
     const danger = new Set(this.fires.map((f) => cell(f.x, f.z)));
     for (const target of this.invasion.targets)
-      for (const [x,z] of blastCells(this.map,target.x,target.z,1)) danger.add(cell(x,z));
+      for (const [x,z] of (target.radius ? circleCells(this.map,target.x,target.z,target.radius) : blastCells(this.map,target.x,target.z,1))) danger.add(cell(x,z));
+    if (this.invasion.actor.state === 'charging')
+      for(const [x,z] of circleCells(this.map,this.invasion.actor.x,this.invasion.actor.z,TRUMP_RADIUS)) danger.add(cell(x,z));
     for (const b of this.bombs)
       for (const [x, z] of blastCells(this.map, b.x, b.z, b.range))
         danger.add(cell(x, z));
@@ -677,6 +678,20 @@ export class Match {
     this.shieldFlash = Math.max(0, this.shieldFlash - dt);
     const p = this.player;
     this.elapsed += dt;
+    this.swordTime=Math.max(0,this.swordTime-dt);this.swordCooldown-=dt;this.swordSwing=Math.max(0,this.swordSwing-dt);
+    if(this.swordTime>0&&p.hp>0&&this.swordCooldown<=0) {
+      const victim=this.enemies.find(e=>e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
+        (-(e.x-p.x)*Math.sin(p.yaw)-(e.z-p.z)*Math.cos(p.yaw))>Math.hypot(e.x-p.x,e.z-p.z)*.5&&clearSight(this,p,e));
+      if(victim) {this.swordCooldown=.24;this.swordSwing=.2;if(this.hurtEnemy(victim,'special',2))victim.invulnerable=.22;this.events.push({type:'sword-hit'});}
+    }
+    if([0,6,8].includes(this.character)&&this.elapsed>=this.nextSpecialItem) {
+      this.nextSpecialItem=this.elapsed+18+this.random()*12;
+      if(this.items.filter(i=>i.type>=3).length<3) {
+        const spots=[],danger=this.danger();
+        for(let z=1;z<SIZE-1;z++)for(let x=1;x<SIZE-1;x++)if(!this.solid(x,z)&&!this.items.some(i=>cell(i.x,i.z)===cell(x,z))&&!danger.has(cell(x,z))&&Math.hypot(x-p.x,z-p.z)>1&&this.path(p,[x,z],new Set()))spots.push([x,z]);
+        if(spots.length){const [x,z]=spots[Math.floor(this.random()*spots.length)];this.items.push({id:++this.serial,x,z,type:({0:3,8:4,6:5}[this.character]),wait:.5});}
+      }
+    }
     this.cooldown -= dt;
     this.specialCharge = Math.min(1, this.specialCharge + dt / 22);
     this.quoteTime -= dt;
@@ -910,17 +925,22 @@ export class Match {
         p.hp > 0 &&
         item.wait <= 0 &&
         (item.type !== 0 || p.hp < 3) &&
+        (item.type < 3 || this.specialItems < 2) &&
         Math.hypot(item.x - p.x, item.z - p.z) < 0.68
       ) {
         if (item.type === 0) p.hp = Math.min(3, p.hp + 1);
         if (item.type === 1) p.shield = Math.max(p.shield, 6);
         if (item.type === 2) this.range = Math.min(6, this.range + 1);
+        if(item.type>=3)this.specialItems++;
         this.items.splice(this.items.indexOf(item), 1);
         this.score += 100;
         this.notice = [
           'CORAÇÃO RECUPERADO!',
           'ESCUDO ATIVADO!',
           'MAIS ALCANCE!',
+          'PICANHA COLETADA · E PARA USAR!',
+          'CADEIRA COLETADA · E PARA LANÇAR!',
+          'ESPADA COLETADA · E PARA EQUIPAR!',
         ][item.type];
         this.noticeTime = 1.8;
         this.events.push({ type: 'pickup' });
@@ -1003,7 +1023,8 @@ export class Match {
           this.bombs.filter((b) => b.owner === 'player').length -
           (this.heldBomb ? 1 : 0),
       ),
-      special: this.specialCharge,
+      special: this.specialItems>0?1:this.specialCharge,
+      specialItems: this.specialItems, swordTime: this.swordTime,
       chaos: this.chaos,
       enemies: this.enemies.filter((e) => e.hp > 0).length,
       quote: this.quote,

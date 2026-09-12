@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { radialImpact } from '../public/game/impact.mjs';
+import { arrivalCamera } from '../public/game/cinematic.mjs';
 import {
   Match,
   generateMap,
@@ -136,10 +138,13 @@ test('all nine specials create a distinct gameplay state and recharge', () => {
     assert.ok(g.specialCharge > 0);
   }
 });
-test('Lula picanha shield spends one visible charge per hit', () => {
-  const g = clean();g.character=0;g.special();
-  for(let remaining=2;remaining>=0;remaining--){g.player.invulnerable=0;g.hurtPlayer();assert.equal(g.player.hp,3);assert.equal(g.player.picanha,remaining);}
-  g.player.invulnerable=0;g.hurtPlayer();assert.equal(g.player.hp,2);
+test('Lula picanha grants four seconds of immunity including held explosions', () => {
+  const g=clean();g.special();g.player.invulnerable=0;
+  assert.equal(g.player.picanhaTime,4);
+  for(let i=0;i<79;i++){g.hurtPlayer(9,{unblockable:true,ignoreInvulnerable:true});g.tick(.05);}
+  assert.equal(g.player.hp,3);
+  for(let i=0;i<3;i++)g.tick(.05);
+  g.hurtPlayer();assert.equal(g.player.hp,2);
 });
 test('Dilma stores one blast and returns a directional wind attack', () => {
   const g=clean();g.character=2;g.player.x=7;g.player.z=7;g.special();g.player.invulnerable=0;
@@ -331,10 +336,10 @@ test('simultaneous final deaths annul election instead of declaring a winner', (
   assert.equal(g.phase, 'draw');
   assert.equal(g.winner, -2);
 });
-test('three invaders have equal draws and warning starts between five and ten seconds', () => {
-  const counts={putin:0,trump:0,kim:0},timings=new Set();
+test('four invaders have balanced draws and warning starts between five and ten seconds', () => {
+  const counts={putin:0,trump:0,kim:0,bukele:0},timings=new Set();
   for(let seed=0;seed<1000;seed++) { const g=new Match(seed);counts[g.invasion.kind]++;timings.add(g.invasion.startsAt);assert.ok(g.invasion.startsAt>=5&&g.invasion.startsAt<10); }
-  for(const count of Object.values(counts)) assert.ok(count>270&&count<400);
+  for(const count of Object.values(counts)) assert.ok(count>200&&count<300);
   assert.ok(timings.size>990);
 });
 test('warning lasts seven seconds and Putin flyby freezes actors, bombs and match clock', () => {
@@ -360,11 +365,11 @@ test('Putin fires exactly two marked strikes, locks the area and leaves after fo
   assert.equal(g.invasion.shots,2);assert.equal(g.events.filter(e=>e.type==='explode').length,2);
   assert.equal(g.invasion.stage,'done');assert.equal(g.invasion.targets.length,0);
 });
-test('Trump follows traversable corridors, plants bombs and never enters election standings', () => {
+test('Trump follows traversable corridors and never enters election standings', () => {
   const g=clean();g.invasion.kind='trump';g.invasion.stage='active';const a=g.invasion.actor;
   const before=[a.x,a.z];
   for(let i=0;i<120;i++){g.invasion.tick(g,.05);assert.equal(g.solid(a.x,a.z),false);}
-  assert.notDeepEqual([a.x,a.z],before);assert.ok(g.bombs.some(b=>b.owner==='invader'));
+  assert.notDeepEqual([a.x,a.z],before);assert.equal(g.bombs.length,0);
   assert.equal(g.enemies.length,1);g.enemies[0].hp=0;g.resolveWinner();assert.equal(g.winner,g.character);
   const remaining=g.invasion.remaining;g.tick(.05);assert.equal(g.invasion.remaining,remaining);
   g.reset();assert.equal(g.invasion.stage,'scheduled');assert.equal(g.invasion.targets.length,0);
@@ -445,17 +450,17 @@ test('seven-second warning keeps real duration at 10, 30 and 60 FPS', () => {
     assert.equal(g.invasion.remaining,14);
   }
 });
-test('all intros freeze held fuses, resume in 2.2 seconds and allow fourteen active seconds', () => {
-  for(const kind of ['putin','trump','kim']) {
-    const g=clean();g.beginHold();g.invasion.kind=kind;g.invasion.stage='arrival';g.invasion.intro=2.2;
-    for(let i=0;i<44;i++)advanceFrame(g,.05,{forward:true});
+test('all intros freeze held fuses, resume in three seconds and allow fourteen active seconds', () => {
+  for(const kind of ['putin','trump','kim','bukele']) {
+    const g=clean();g.beginHold();g.invasion.kind=kind;g.invasion.stage='arrival';g.invasion.intro=3;
+    for(let i=0;i<60;i++)advanceFrame(g,.05,{forward:true});
     assert.equal(g.player.x,1);assert.equal(g.heldBomb.fuse,3);assert.equal(g.invasion.remaining,14);
     g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'active');
     for(let i=0;i<281;i++)g.invasion.tick(g,.05);
     assert.equal(g.invasion.stage,'done');
   }
 });
-test('Kim launches three fixed marked rockets with two seconds to escape', () => {
+test('Kim launches three fixed marked rockets with 2.8 seconds to escape', () => {
   const g=clean();g.invasion.kind='kim';g.invasion.stage='active';g.invasion.shotClock=0;
   g.invasion.tick(g,.05);const target=g.invasion.targets[0],before=[target.x,target.z];
   g.player.x=9;g.enemies[0].x=8;
@@ -464,5 +469,95 @@ test('Kim launches three fixed marked rockets with two seconds to escape', () =>
   for(let i=0;i<245;i++)g.invasion.tick(g,.05);
   assert.equal(g.invasion.shots,3);assert.equal(g.events.filter(e=>e.type==='explode').length,3);
   assert.equal(g.invasion.stage,'done');
+});
+test('Trump stops to charge, lets players escape, then explodes exactly once', () => {
+  for(const escape of [false,true]) {
+    const g=clean();g.invasion.kind='trump';g.invasion.stage='active';
+    const a=g.invasion.actor;a.x=7;a.z=7;g.player.x=8;g.player.z=7;g.player.invulnerable=0;
+    g.invasion.tick(g,.05);assert.equal(a.state,'charging');assert.ok(g.danger().has('8,7'));
+    if(escape)g.player.x=11;
+    for(let i=0;i<46;i++)g.invasion.tick(g,.05);
+    assert.equal(a.x,7);assert.equal(a.z,7);assert.equal(g.player.hp,3);
+    for(let i=0;i<10;i++)g.invasion.tick(g,.05);
+    assert.equal(a.state,'spent');assert.equal(g.player.hp,escape?3:2);
+    assert.equal(g.events.filter(e=>e.type==='explode'&&e.style==='trump').length,1);
+  }
+});
+test('missile impact hits diagonally, preserves shields and does not leave cross fire', () => {
+  for(const shield of [0,5]) {
+    const g=clean();g.player.x=8;g.player.z=8;g.player.invulnerable=0;g.player.shield=shield;
+    g.map[6][6]=2;radialImpact(g,7,7,1.75,'missile');
+    assert.equal(g.player.hp,shield?3:2);assert.equal(g.map[6][6],0);assert.equal(g.fires.length,0);
+  }
+});
+test('second invasion waits for late game, picks a different invader, resets state and cannot repeat a third time', () => {
+  const g=clean(),first=g.invasion.kind;assert.ok(g.invasion.returnAt>=90&&g.invasion.returnAt<115);
+  g.invasion.stage='done';g.invasion.actor.state='spent';g.invasion.shots=3;
+  g.elapsed=g.invasion.returnAt-.1;g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'done');
+  g.elapsed=g.invasion.returnAt;g.invasion.tick(g,.05);
+  assert.equal(g.invasion.stage,'warning');assert.equal(g.invasion.wave,2);assert.notEqual(g.invasion.kind,first);
+  assert.equal(g.invasion.warning,7);assert.equal(g.invasion.shots,0);assert.equal(g.invasion.actor.state,'hunting');
+  g.invasion.stage='done';g.elapsed=999;g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'done');
+  g.reset();assert.equal(g.invasion.wave,1);
+});
+test('all arrivals have three finite camera shots; reduced motion keeps one shot', () => {
+  for(const kind of ['putin','trump','kim','bukele']) {
+    const shots=[.1,.5,.9].map(t=>arrivalCamera(kind,t,{x:19,y:7,z:19}));
+    assert.deepEqual(shots.map(s=>s.shot),[0,1,2]);
+    for(const s of shots)assert.ok([...Object.values(s.position),...Object.values(s.target),s.fov].every(Number.isFinite));
+    for(const t of [.1,.5,.9])assert.equal(arrivalCamera(kind,t,{x:0,y:0,z:0},true).shot,0);
+  }
+});
+test('Kim intro launches three missiles once while match clock stays frozen', () => {
+  const g=clean();g.invasion.kind='kim';g.invasion.stage='arrival';g.invasion.intro=3;
+  for(let i=0;i<60;i++)g.tick(.05);
+  assert.equal(g.events.filter(e=>e.type==='missile-launch').length,3);assert.equal(g.elapsed,0);
+});
+test('Bukele captures player and bots for six seconds then releases without recapture',()=>{
+  for(const bot of [false,true]) {
+    const g=clean(),v=bot?g.enemies[0]:g.player;
+    g.invasion.kind='bukele';g.invasion.stage='active';
+    g.invasion.actor.x=7;g.invasion.actor.z=7;v.x=7.5;v.z=7;
+    g.invasion.tick(g,.05);assert.equal(g.invasion.cages.length,1);
+    g.move(v,1,0);assert.equal(v.x,7.5);
+    for(let i=0;i<119;i++)g.invasion.tick(g,.05);
+    assert.ok(g.invasion.cages[0].time>0);g.move(v,1,0);assert.equal(v.x,7.5);
+    for(let i=0;i<3;i++)g.invasion.tick(g,.05);
+    assert.equal(g.invasion.cages.filter(c=>c.victim===v).length,0);g.move(v,1,0);assert.equal(v.x,8.5);
+    assert.equal(g.events.filter(e=>e.type==='cage-capture'&&e.player===!bot).length,1);
+  }
+});
+test('Bukele cannot capture through walls; cages pause and survive patrol exit',()=>{
+  const g=clean();g.invasion.kind='bukele';g.invasion.stage='active';
+  const a=g.invasion.actor;a.x=7;a.z=7;g.player.x=7.8;g.player.z=7;g.map[7][8]=1;
+  g.invasion.tick(g,.05);assert.equal(g.invasion.cages.length,0);
+  g.map[7][8]=0;g.invasion.tick(g,.05);assert.equal(g.invasion.cages.length,1);
+  const time=g.invasion.cages[0].time;g.phase='paused';g.tick(.05);assert.equal(g.invasion.cages[0].time,time);
+  g.phase='playing';g.invasion.remaining=0;g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'done');
+  for(let i=0;i<121;i++)g.invasion.tick(g,.05);assert.equal(g.invasion.cages.length,0);
+  g.reset();assert.equal(g.invasion.captured.size,0);
+});
+test('personal pickups store two uses, activate without recharge and preserve excess drops',()=>{
+  for(const [character,type] of [[0,3],[8,4],[6,5]]) {
+    const g=clean();g.character=character;g.specialCharge=0;
+    g.items=[1,2,3].map(id=>({id,x:1,z:1,type,wait:0}));g.tick(.05);
+    assert.equal(g.specialItems,2);assert.equal(g.items.length,1);assert.equal(g.special(),true);assert.equal(g.specialItems,1);
+    if(character===0)assert.equal(g.player.picanhaTime,4);
+    if(character===8)assert.equal(g.chairs.length,1);
+    if(character===6)assert.equal(g.swordTime,8);
+  }
+});
+test('sword hits rapidly for two hearts in front and never through a wall',()=>{
+  for(const wall of [false,true]) {
+    const g=clean();g.character=6;g.specialItems=1;g.player.x=7;g.player.z=7;g.player.yaw=-Math.PI/2;
+    const e=g.enemies[0];e.x=8;e.z=7;e.hp=10;e.invulnerable=0;g.map[7][8]=wall?1:0;
+    g.special();for(let i=0;i<12;i++)g.tick(.05);
+    assert.equal(e.hp,wall?10:4);
+  }
+});
+test('occasional personal item appears on reachable safe ground and resets with a match',()=>{
+  const g=clean();g.nextSpecialItem=0;g.tick(.05);
+  const item=g.items.find(i=>i.type===3);assert.ok(item);assert.equal(g.map[item.z][item.x],0);
+  assert.ok(g.path(g.player,[item.x,item.z],new Set()));g.reset();assert.equal(g.specialItems,0);assert.equal(g.swordTime,0);
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

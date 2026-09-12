@@ -1,12 +1,24 @@
+import { radialImpact, clearSight } from './impact.mjs?v=11';
 export const INVASION_WARNING = 7;
+export const TRUMP_CHARGE = 2.4;
+export const MISSILE_RADIUS = 1.75;
+export const TRUMP_RADIUS = 2.2;
 export const INVASION_DURATION = 14;
-export const INVASION_INTRO = 2.2;
-export const INVADERS = ['putin', 'trump', 'kim'];
+export const INVASION_INTRO = 3;
+export const INVADERS = ['putin', 'trump', 'kim', 'bukele'];
+export const CAGE_DURATION = 6;
 
 export class Invasion {
   constructor(random) {
-    this.kind = INVADERS[Math.min(2, Math.floor(random() * 3))];
+    this.kind = INVADERS[Math.min(INVADERS.length-1, Math.floor(random() * INVADERS.length))];
     this.startsAt = 5 + random() * 5;
+    this.returnAt = 90 + random() * 25;
+    const otherInvaders = INVADERS.filter(kind => kind !== this.kind);
+    this.returnKind = otherInvaders[Math.min(otherInvaders.length-1, Math.floor(random() * otherInvaders.length))];
+    this.wave = 1;
+    this.resetEncounter();
+  }
+  resetEncounter() {
     this.stage = 'scheduled';
     this.warning = INVASION_WARNING;
     this.remaining = INVASION_DURATION;
@@ -14,10 +26,28 @@ export class Invasion {
     this.shots = 0;
     this.shotClock = 2;
     this.targets = [];
-    this.actor = { x: 13, z: 7, target: null, think: 0, bombClock: 1.2, walk: 0 };
+    this.impacts = [];
+    this.lastTarget = null;
+    this.launchIndex = 0;
+    this.cages = [];
+    this.captured = new Set();
+    this.actor = { x: 13, z: 7, target: null, think: 0, walk: 0, state: 'hunting', charge: 0, beep: 0 };
   }
   tick(game, dt) {
-    if (this.stage === 'done') return false;
+    // Captures finish their full six seconds even when the patrol leaves.
+    for (const cage of this.stage==='arrival'?[]:this.cages) {
+      cage.time = Math.max(0,cage.time-dt);
+      if(cage.victim.hp<=0) cage.time=0;
+      if(cage.time===0) game.events.push({type:'cage-release',player:cage.victim===game.player});
+    }
+    this.cages=this.cages.filter(c=>c.time>0);
+    if (this.stage === 'done') {
+      if (this.wave !== 1 || game.elapsed < this.returnAt) return false;
+      this.wave = 2;
+      this.kind = this.returnKind;
+      this.startsAt = this.returnAt;
+      this.resetEncounter();
+    }
     if (this.stage === 'scheduled') {
       if (game.elapsed < this.startsAt) return false;
       this.stage = 'warning';
@@ -38,10 +68,18 @@ export class Invasion {
     }
     if (this.stage === 'arrival') {
       this.intro = Math.max(0, this.intro - dt);
-      if (this.intro <= 0) this.stage = 'active';
+      if(this.kind === 'kim') {
+        const progress=1-this.intro/INVASION_INTRO;
+        while(this.launchIndex<3 && progress>=.4+this.launchIndex*.13) {
+          game.events.push({type:'missile-launch',index:this.launchIndex++});
+        }
+      }
+      if (this.intro <= 0) { this.stage = 'active'; if(this.kind === 'kim') this.shotClock = .35; }
       return true;
     }
     this.remaining = Math.max(0, this.remaining - dt);
+    for(const impact of this.impacts) impact.life -= dt;
+    this.impacts = this.impacts.filter(impact => impact.life > 0);
     if (this.remaining <= 0) {
       this.stage = 'done';
       this.targets = [];
@@ -57,15 +95,17 @@ export class Invasion {
         const candidates = choices.length ? choices : survivors;
         const victim = candidates[Math.floor(game.random() * candidates.length)];
         this.lastTarget = victim.id ?? 'player';
-        this.targets.push({ id: ++game.serial, x: Math.round(victim.x), z: Math.round(victim.z), time: this.kind === 'kim' ? 2 : 2.5, victim: this.lastTarget });
+        const duration = this.kind === 'kim' ? 2.8 : 2.5;
+        this.targets.push({ id: ++game.serial, x: Math.round(victim.x), z: Math.round(victim.z), time: duration, duration, radius: this.kind === 'kim' ? MISSILE_RADIUS : 0, victim: this.lastTarget });
         this.shots++;
         this.shotClock = this.kind === 'kim' ? 3.5 : 5;
-        game.events.push({ type: 'invasion-target', player: this.lastTarget === 'player' });
+        game.events.push({ type: 'invasion-target', kind: this.kind, x: victim.x, z: victim.z, player: this.lastTarget === 'player' });
       }
       for (const target of this.targets.slice()) {
         target.time -= dt;
         if (target.time > 0) continue;
         this.targets.splice(this.targets.indexOf(target), 1);
+        if (this.kind === 'kim') { radialImpact(game, target.x, target.z, MISSILE_RADIUS, 'missile'); continue; }
         // Fixed marked area: walking away remains a reliable counterplay.
         const bomb = { id: ++game.serial, x: target.x, z: target.z, y: 0.23, owner: 'invader', range: 1, fuse: 0 };
         game.bombs.push(bomb);
@@ -73,12 +113,31 @@ export class Invasion {
       }
     } else {
       const a = this.actor;
+      if (a.state === 'spent') return false;
+      if (a.state === 'charging') {
+        a.charge += dt; a.beep -= dt;
+        if(a.beep <= 0) { a.beep = .45 - .3 * Math.min(1,a.charge/TRUMP_CHARGE); game.events.push({type:'trump-beep',x:a.x,z:a.z,charge:a.charge/TRUMP_CHARGE}); }
+        if(a.charge >= TRUMP_CHARGE) { a.state='spent'; radialImpact(game,a.x,a.z,TRUMP_RADIUS,'trump'); }
+        return false;
+      }
+      const nearest = survivors.filter(v=>this.kind!=='bukele'||!this.captured.has(v)).sort((p,q)=>Math.hypot(p.x-a.x,p.z-a.z)-Math.hypot(q.x-a.x,q.z-a.z));
+      const close = nearest.find(v=>Math.hypot(v.x-a.x,v.z-a.z)<1.6 && clearSight(game,a,v));
+      if(close) {
+        if(this.kind==='bukele') {
+          if(Math.hypot(close.x-a.x,close.z-a.z)<.85) {
+            this.captured.add(close);
+            this.cages.push({id:++game.serial,x:close.x,z:close.z,time:CAGE_DURATION,victim:close});
+            close.vx=0;close.vz=0;a.target=null;
+            game.events.push({type:'cage-capture',player:close===game.player,x:close.x,z:close.z});
+            return false;
+          }
+        } else { a.state='charging';a.target=null;a.charge=0;game.events.push({type:'trump-charge',x:a.x,z:a.z});return false; }
+      }
       a.think -= dt;
-      a.bombClock -= dt;
       if (!a.target || a.think <= 0) {
         a.think = 0.5;
-        const victim = survivors[Math.floor(game.random() * survivors.length)];
-        a.target = victim ? game.path(a, [Math.round(victim.x), Math.round(victim.z)], new Set()) : null;
+        a.target = null;
+        for(const victim of nearest) { a.target = Math.hypot(victim.x-a.x,victim.z-a.z)<1.6&&clearSight(game,a,victim) ? [victim.x,victim.z] : game.path(a,[Math.round(victim.x),Math.round(victim.z)],new Set()); if(a.target) break; }
         if (!a.target) {
           const options = [[1,0],[-1,0],[0,1],[0,-1]]
             .map(([x,z]) => [Math.round(a.x)+x,Math.round(a.z)+z])
@@ -91,15 +150,12 @@ export class Invasion {
         if (distance < 0.06) { a.x = a.target[0]; a.z = a.target[1]; a.target = null; }
         else { const step = Math.min(distance, dt*2.5); game.move(a,dx/distance*step,dz/distance*step); a.walk += dt*10; }
       }
-      if (a.bombClock <= 0) {
-        game.addBomb(a.x,a.z,'invader',2,2.4);
-        a.bombClock = 2.8;
-      }
     }
     return false;
   }
   snapshot() {
-    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, duration: INVASION_DURATION,
-      targeted: this.targets.some(t => t.victim === 'player'), shots: this.shots };
+    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, duration: INVASION_DURATION, wave: this.wave,
+      caged: this.cages.find(c=>c.victim.id===undefined)?.time || 0,
+      targeted: this.targets.some(t => t.victim === 'player'), shots: this.shots, charging: this.actor.state === 'charging', charge: this.actor.charge/TRUMP_CHARGE };
   }
 }

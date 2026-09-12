@@ -1374,6 +1374,17 @@ kbd {
   background: #12092355;
   text-shadow: 4px 4px #4b1d63;
 }
+.round-countdown .countdown-portrait{position:relative;width:110px;height:110px;aspect-ratio:1;flex:none;filter:drop-shadow(0 8px 16px #0009)}
+.round-countdown strong{animation:count-beat .22s ease-out}
+.countdown-track{width:min(320px,75vw);height:5px;margin-top:22px;background:#ffffff25}
+.countdown-track i{display:block;width:100%;height:100%;background:#d8ff48;transform-origin:left;transition:transform 60ms linear}
+.lobby-champion{width:clamp(170px,22vw,320px);height:clamp(170px,22vw,320px);margin:0 auto 16px;filter:drop-shadow(0 14px 20px #000a)}
+.lobby-champion .portrait{position:relative;width:100%;height:100%}
+.lobby-main{animation:lobby-enter .55s ease-out}
+.trump-charge-alert{border-color:#ff4c5f;background:#75142aee}
+@keyframes count-beat{from{transform:scale(1.15);opacity:.3}to{transform:scale(1);opacity:1}}
+@keyframes lobby-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.round-countdown strong,.lobby-main{animation:none}.countdown-track i{transition:none}}
 .round-countdown strong {
   font:
     150px Impact,
@@ -1656,7 +1667,7 @@ kbd {
 .hearts .special-effect{display:inline-flex;align-items:center;gap:4px;margin-left:7px;padding:3px 7px;border:1px solid currentColor;background:#0b1020d9;font:800 11px monospace;letter-spacing:.6px;line-height:1;color:#ffe06b;text-shadow:0 0 10px currentColor}.special-effect small{font:800 12px monospace;letter-spacing:0}.picanha-effect{color:#ff8b69!important}.wind-effect{color:#78ebff!important}.vampire-effect{color:#dc87ff!important}.ram-effect{color:#c9ff4e!important}.property-effect{color:#ffd347!important}.decoy-effect{color:#6cf4ff!important}.barricade-effect{color:#ff6278!important}
 .invasion-alert{position:fixed;z-index:35;top:155px;left:50%;transform:translateX(-50%);display:flex;gap:14px;width:min(460px,88vw);padding:12px 16px;background:linear-gradient(115deg,#360c1aee,#101324f5);border:2px solid #ff3f51;box-shadow:0 8px 36px #0009;pointer-events:none;}
 .invader-portrait{width:82px;height:82px;flex:none;background-image:var(--invader-atlas);background-size:300% 100%;image-rendering:pixelated;background-repeat:no-repeat;}
-.invader-putin{background-position:50% 0}.invader-trump{background-position:0 0}.invader-kim{background-position:100% 0}
+.invader-putin{background-position:50% 0}.invader-trump{background-position:0 0}.invader-kim{background-position:100% 0}.invader-bukele{background-image:url('/bukele-pixel-v11.png');background-size:contain;background-position:center}.cage-alert{background:#102d47;border-color:#60caff}.cage-alert small{display:block;font-size:12px;margin-top:5px;color:#bce8ff}
 .damage-feedback,.shield-feedback{position:fixed;inset:0;z-index:28;pointer-events:none;transition:opacity 60ms linear}
 .damage-feedback{background:radial-gradient(ellipse at center,transparent 42%,#ed243930 70%,#a5063580 100%);box-shadow:inset 0 0 85px #e9293e55}
 .shield-feedback{background:radial-gradient(ellipse at center,transparent 55%,#4ebeff55 100%);box-shadow:inset 0 0 55px #67d9ff44}

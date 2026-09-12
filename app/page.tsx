@@ -188,7 +188,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=11';
+    script.src = '/game/boot.js?v=12';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -448,7 +448,7 @@ export default function Home() {
                   ))}
                   {state.shield && <span className="shield-status" aria-label={`Escudo: ${Math.ceil(state.shieldTime)} segundos`}><Shield size={23} /><small>{Math.ceil(state.shieldTime)}s</small></span>}
                   {state.picanhaTime > 0 && <span className="special-effect picanha-effect" aria-label="Invulnerável"><img src="/item-steak-pixel-v11.png" width="28" height="28" alt="Picanha"/><small>{state.picanhaTime.toFixed(1)}s</small></span>}
-                  {state.swordTime > 0 && <span className="special-effect"><img src="/item-sword-pixel-v11.png" width="28" height="28" alt="Espada"/><small>{state.swordTime.toFixed(1)}s · MIRE DE PERTO</small></span>}
+                  {state.swordTime > 0 && <span className="special-effect"><img src="/item-sword-pixel-v11.png" width="28" height="28" alt="Espada"/><small>{state.swordTime.toFixed(1)}s · CLIQUE PARA GOLPEAR</small></span>}
                   {state.windTime > 0 && <span className="special-effect wind-effect" aria-label={`Vento estocado por ${Math.ceil(state.windTime)} segundos`}>VENTO <small>{Math.ceil(state.windTime)}s</small></span>}
                   {state.vampireTime > 0 && <span className="special-effect vampire-effect" aria-label={`Pacto imortal por ${Math.ceil(state.vampireTime)} segundos`}>🦇<small>{Math.ceil(state.vampireTime)}s</small></span>}
                   {state.ramTime > 0 && <span className="special-effect ram-effect" aria-label={`Motociata por ${Math.ceil(state.ramTime)} segundos`}>MOTO <small>{Math.ceil(state.ramTime)}s</small></span>}
@@ -577,9 +577,9 @@ export default function Home() {
               }}
               onPointerUp={() => api.current?.releaseBomb()}
               onPointerCancel={() => api.current?.releaseBomb()}
-              aria-label="Segurar para mirar e soltar para arremessar bomba"
+              aria-label={state.swordTime>0?'Segurar para golpear com a lâmina':selected===8&&state.special>=1?'Arremessar cadeira':'Segurar para mirar e soltar para arremessar bomba'}
             >
-              <Bomb />
+              {state.swordTime>0?<img src="/item-sword-pixel-v11.png" width="32" height="32" alt=""/>:selected===8&&state.special>=1?<img src="/item-chair-pixel-v11.png" width="32" height="32" alt=""/>:<Bomb />}
             </button>
           </div>
         </>

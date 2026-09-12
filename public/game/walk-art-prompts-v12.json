@@ -1,0 +1,13 @@
+{
+  "tool": "Built-in image_gen",
+  "assets": [
+    {
+      "path": "bukele-walk-v12.png",
+      "prompt": "Use case: stylized-concept. Create a production videogame WALK CYCLE SPRITE SHEET of the Bukele miniature in the reference. Preserve his exact face, backward navy cap, beard, navy jacket, black trousers, shoes, pixel density and warm outlined rich pixel-art style. Exactly FOUR frames on a precise 2 by 2 equal square grid. Each cell contains one full body character, same camera front three-quarter, same scale, centered, feet on SAME baseline relative to its cell, full head and feet visible with 12% padding all sides. Reading order: frame 1 left foot forward right arm forward, frame 2 feet passing under body, frame 3 right foot forward left arm forward, frame 4 opposite passing pose. Natural cute patrol walk, keep the little golden key in hand, real different leg/arm poses, don't just repeat idle. No grid lines, no borders, no lettering, no shadows outside character, genuine transparent background not checkerboard."
+    },
+    {
+      "path": "trump-walk-v12.png",
+      "prompt": "Use case: stylized-concept. Create a production videogame WALK CYCLE SPRITE SHEET of only Donald Trump, the LEFT miniature character in the reference. Preserve his exact face, blonde swept hair, navy suit, bright red tie, black shoes, big head short chibi body, rich pixel clusters, warm highlights and dark outlines. Exactly FOUR frames on a precise 2 by 2 equal square grid. Each cell contains one full body Trump, same camera front three-quarter, same scale, centered, feet on SAME baseline relative to cell, full head and feet visible with 12% padding all sides. Reading order: frame 1 left foot forward right arm forward, frame 2 feet passing under body, frame 3 right foot forward left arm forward, frame 4 opposite passing pose. Swaggering patrol walk, arms visibly swing, real different leg/arm poses not duplicates. No other politicians, no grid lines, no borders, no lettering, no shadows outside character, genuinely transparent background not checkerboard."
+    }
+  ]
+}

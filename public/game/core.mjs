@@ -337,6 +337,22 @@ export class Match {
     this.events.push({ type: 'bomb', bomb: b });
     return b;
   }
+  primaryPress() {
+    if(this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
+    if(this.swordTime>0)return this.swingSword();
+    if(this.character===8&&(this.specialItems>0||this.specialCharge>=1))return this.special();
+    return this.beginHold();
+  }
+  swingSword() {
+    if(this.swordTime<=0||this.swordCooldown>0||this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
+    this.swordCooldown=.24;this.swordSwing=.2;
+    const p=this.player;
+    const victim=this.enemies.find(e=>e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
+      (-(e.x-p.x)*Math.sin(p.yaw)-(e.z-p.z)*Math.cos(p.yaw))>Math.hypot(e.x-p.x,e.z-p.z)*.5&&clearSight(this,p,e));
+    const hit=victim&&this.hurtEnemy(victim,'special',2);
+    if(hit)victim.invulnerable=.22;
+    this.events.push({type:hit?'sword-hit':'sword-swing'});return true;
+  }
   beginHold() {
     if (
       this.invasion.stage === 'arrival' ||
@@ -679,11 +695,7 @@ export class Match {
     const p = this.player;
     this.elapsed += dt;
     this.swordTime=Math.max(0,this.swordTime-dt);this.swordCooldown-=dt;this.swordSwing=Math.max(0,this.swordSwing-dt);
-    if(this.swordTime>0&&p.hp>0&&this.swordCooldown<=0) {
-      const victim=this.enemies.find(e=>e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
-        (-(e.x-p.x)*Math.sin(p.yaw)-(e.z-p.z)*Math.cos(p.yaw))>Math.hypot(e.x-p.x,e.z-p.z)*.5&&clearSight(this,p,e));
-      if(victim) {this.swordCooldown=.24;this.swordSwing=.2;if(this.hurtEnemy(victim,'special',2))victim.invulnerable=.22;this.events.push({type:'sword-hit'});}
-    }
+    if(input.attack&&this.swordTime>0)this.swingSword();
     if([0,6,8].includes(this.character)&&this.elapsed>=this.nextSpecialItem) {
       this.nextSpecialItem=this.elapsed+18+this.random()*12;
       if(this.items.filter(i=>i.type>=3).length<3) {

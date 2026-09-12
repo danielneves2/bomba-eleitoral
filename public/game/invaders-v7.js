@@ -48,6 +48,13 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
   const bukele=politician(0);root.add(bukele);
   const bukeleMat=spriteMaterial();bukele.userData.figure.material=bukeleMat;
   load('/bukele-pixel-v11.png',[bukeleMat],1);
+  const walking={trump:spriteMaterial(),bukele:spriteMaterial()};
+  for(const kind of ['trump','bukele'])loadCutout(`/${kind}-walk-v12.png`).then(canvas=>{
+    if(disposed)return;
+    const tx=new T.CanvasTexture(canvas);tx.colorSpace=T.SRGBColorSpace;tx.magFilter=T.NearestFilter;tx.minFilter=T.NearestFilter;tx.generateMipmaps=false;
+    tx.repeat.set(.5,.5);tx.offset.set(0,.5);textures.push(tx);walking[kind].map=tx;walking[kind].needsUpdate=true;
+  }).catch(()=>console.warn('Animação indisponível; usando retrato do invasor.'));
+  let lastWalk=0;
   function cageModel() {
     const cage=new T.Group();
     for(const y of [.1,2.8]) {box(cage,2.5,.12,2.5,0,y,0,trim);}
@@ -109,6 +116,16 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     parade.visible = invasion.kind === 'trump' && arrival;
     kim.visible = invasion.kind === 'kim' && (arrival || active); launcher.visible = kim.visible;
     const t = 1 - invasion.intro / INVASION_INTRO;
+    if(['trump','bukele'].includes(invasion.kind)&&game.phase!=='paused') {
+      const a=invasion.actor,kind=invasion.kind,figure=(kind==='trump'?trump:bukele).userData.figure;
+      const moving=active&&a.state==='hunting'&&a.walk!==lastWalk;
+      if(moving&&walking[kind].map) {
+        const frame=Math.floor(a.walk)%4;
+        walking[kind].map.offset.set((frame%2)*.5,(1-Math.floor(frame/2))*.5);
+        figure.material=walking[kind];
+      } else figure.material=kind==='trump'?portraits[0]:bukeleMat;
+      lastWalk=a.walk;
+    }
     bukele.visible=invasion.kind==='bukele'&&(arrival||active);
     entranceCage.visible=invasion.kind==='bukele'&&arrival;
     if(bukele.visible) {
@@ -129,6 +146,7 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     const charging = active && invasion.kind === 'trump' && invasion.actor.state === 'charging';
     const heat = charging ? Math.min(1,invasion.actor.charge/TRUMP_CHARGE) : 0;
     portraits[0].color.setRGB(1,1-heat*.9,1-heat*.88);
+    walking.trump.color.copy(portraits[0].color);
     chargeRing.visible=charging;
     if(charging) {
       chargeRing.position.set(invasion.actor.x*2.7,.08,invasion.actor.z*2.7);

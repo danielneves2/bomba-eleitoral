@@ -551,7 +551,7 @@ test('sword hits rapidly for two hearts in front and never through a wall',()=>{
   for(const wall of [false,true]) {
     const g=clean();g.character=6;g.specialItems=1;g.player.x=7;g.player.z=7;g.player.yaw=-Math.PI/2;
     const e=g.enemies[0];e.x=8;e.z=7;e.hp=10;e.invulnerable=0;g.map[7][8]=wall?1:0;
-    g.special();for(let i=0;i<12;i++)g.tick(.05);
+    g.special();for(let i=0;i<12;i++)g.tick(.05,{attack:true});
     assert.equal(e.hp,wall?10:4);
   }
 });
@@ -559,5 +559,12 @@ test('occasional personal item appears on reachable safe ground and resets with 
   const g=clean();g.nextSpecialItem=0;g.tick(.05);
   const item=g.items.find(i=>i.type===3);assert.ok(item);assert.equal(g.map[item.z][item.x],0);
   assert.ok(g.path(g.player,[item.x,item.z],new Set()));g.reset();assert.equal(g.specialItems,0);assert.equal(g.swordTime,0);
+});
+test('equipped melee and chair use primary click; space still plants bombs',()=>{
+  const g=clean();g.character=6;g.specialItems=1;g.special();
+  assert.equal(g.primaryPress(),true);assert.equal(g.heldBomb,null);assert.equal(g.swordSwing,.2);assert.equal(g.primaryPress(),false);
+  g.throwBomb(true);assert.equal(g.bombs.length,1);assert.equal(g.bombs[0].moving,false);
+  const d=clean();d.character=8;assert.equal(d.primaryPress(),true);assert.equal(d.chairs.length,1);assert.equal(d.heldBomb,null);
+  const p=clean();p.character=6;p.specialItems=1;p.special();p.phase='paused';assert.equal(p.primaryPress(),false);assert.equal(p.swordSwing,0);
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

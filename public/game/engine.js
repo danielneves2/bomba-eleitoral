@@ -1,12 +1,12 @@
 import * as T from '../vendor/three.module.js';
 import { createPixelAssets } from './pixel-assets.js?v=11';
-import { createInvaderView } from './invaders-v7.js?v=11';
+import { createInvaderView } from './invaders-v7.js?v=12';
 import { createSoundtrack } from './soundtrack.js?v=11';
 import { arrivalCamera } from './cinematic.mjs?v=11';
 import { INVASION_INTRO } from './invasion.mjs?v=11';
 import { createPickupFactory } from './pickups.js?v=11';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=11';
+import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=12';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -619,9 +619,10 @@ export function createGame(canvas, onState, onError) {
   }
   const hand = new T.Group();
   const pixelAsset=createPixelAssets({geometries,materials,textures});
-  const equippedSword=pixelAsset('sword',.85);equippedSword.position.set(-.4,-.12,-.8);hand.add(equippedSword);
+  const equippedSword=pixelAsset('sword',.58);equippedSword.position.set(.33,-.22,-.68);hand.add(equippedSword);
+  const equippedChair=pixelAsset('chair',.72);equippedChair.position.set(.32,-.13,-.82);hand.add(equippedChair);
   const steakShield=new T.Group();camera.add(steakShield);
-  const shieldSteaks=Array.from({length:5},()=>{const steak=pixelAsset('steak',.19);steakShield.add(steak);return steak;});
+  const largeSteak=pixelAsset('steak',.68);largeSteak.position.set(-.32,-.17,-.82);largeSteak.rotation.z=-.18;steakShield.add(largeSteak);
   camera.add(hand);
   box(hand, 0.24, 0.35, 0.31, 0.34, -0.4, -0.55, mats.skin);
   box(hand, 0.28, 0.46, 0.34, 0.39, -0.67, -0.48, mats.dark);
@@ -760,6 +761,7 @@ export function createGame(canvas, onState, onError) {
       if(e.type==='cage-capture') {tone(180,.25,'square',e.player?.22:.08,0,70);noise(.12,.18);}
       if(e.type==='cage-release'&&e.player) {[520,780].forEach((n,i)=>tone(n,.16,'triangle',.15,i*.12));}
       if(e.type==='sword-hit') {noise(.07,.16);tone(1300,.1,'triangle',.15,0,320);}
+      if(e.type==='sword-swing') {noise(.065,.055);}
       if(e.type==='trump-charge') {soundtrack?.duck(2.4);tone(200,.3,'triangle',.2,0,400);}
       if(e.type==='trump-beep') {
         const distance=Math.hypot(e.x-game.player.x,e.z-game.player.z);
@@ -885,7 +887,7 @@ export function createGame(canvas, onState, onError) {
     for(const [id,g] of chairs)if(!activeChairs.has(id)){releaseObject(g);chairs.delete(id);}
     for(const e of game.chairs){
       let g=chairs.get(e.id);if(!g){g=chairModel();dynamic.add(g);chairs.set(e.id,g);}
-      g.position.set(e.x*TILE,.2,e.z*TILE);g.rotation.y=Math.atan2(camera.position.x-g.position.x,camera.position.z-g.position.z);g.rotation.z+=dt*5;
+      g.position.set(e.x*TILE,.2+Math.sin(Math.max(0,2-e.time)*Math.PI/2)*1.2,e.z*TILE);g.rotation.y=Math.atan2(camera.position.x-g.position.x,camera.position.z-g.position.z);g.rotation.z+=dt*5;
     }
     const activeBarricades=new Set(game.barricades.map(e=>e.id));
     for(const [id,g] of barricadeBodies)if(!activeBarricades.has(id)){releaseObject(g);barricadeBodies.delete(id);}
@@ -1147,7 +1149,7 @@ export function createGame(canvas, onState, onError) {
     } else if (e.button === 0) {
       held = true;
       lock();
-      game.beginHold();
+      game.primaryPress();
     }
   });
   bind(canvas, 'pointermove', (e) => {
@@ -1195,8 +1197,11 @@ export function createGame(canvas, onState, onError) {
   const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures,onError});
   function loop(now) {
     steakShield.visible=game.player.picanhaTime>0&&game.phase==='playing'&&game.invasion.stage!=='arrival';
-    shieldSteaks.forEach((steak,i)=>{const a=now*.001+i*Math.PI*2/5;steak.position.set(Math.cos(a)*.52,Math.sin(a)*.3,-1);steak.rotation.z=Math.sin(a)*.15;});
-    equippedSword.visible=game.swordTime>0&&!game.heldBomb;equippedSword.rotation.z=-game.swordSwing*4;
+    largeSteak.position.y=-.17+(reduced?0:Math.sin(clock*2)*.006);largeSteak.position.z=-.82+game.shieldFlash*.12;
+    equippedSword.visible=game.swordTime>0&&!game.heldBomb;
+    const slash=reduced?0:Math.sin(Math.max(0,game.swordSwing)/.2*Math.PI);
+    equippedSword.rotation.z=-slash*.9;equippedSword.position.set(.33-slash*.18,-.22+slash*.12,-.68-slash*.2);
+    equippedChair.visible=game.character===8&&(game.specialItems>0||game.specialCharge>=1)&&!game.heldBomb;
     if (dead) return;
     const elapsedFrame = Math.min((now - last) / 1000, 0.25);
     const dt = Math.min(elapsedFrame, 0.05);
@@ -1214,6 +1219,7 @@ export function createGame(canvas, onState, onError) {
         left: keys.KeyA,
         right: keys.KeyD,
         run: keys.ShiftLeft || keys.ShiftRight,
+        attack: held,
       };
       // Catch up in small physics steps instead of stretching seconds at low FPS.
       advanceFrame(game,elapsedFrame,input);
@@ -1275,7 +1281,7 @@ export function createGame(canvas, onState, onError) {
           ? Math.min(0.25, game.heldBomb.heldTime * 0.25)
           : 0);
       heldBomb.visible =
-        game.bombs.filter((b) => b.owner === 'player').length < 3;
+        !equippedSword.visible&&!equippedChair.visible&&game.bombs.filter((b) => b.owner === 'player').length < 3;
       heldBomb.userData.spark.visible = !!game.heldBomb;
       if (game.heldBomb && clock > nextFuseBeep) {
         tone(game.heldBomb.fuse < 1 ? 1400 : 900, 0.045, 'square', 0.12);
@@ -1342,10 +1348,10 @@ export function createGame(canvas, onState, onError) {
       game.throwBomb(false);
     },
     beginHold() {
-      game.beginHold();
+      held=true;game.primaryPress();
     },
     releaseBomb() {
-      game.releaseBomb();
+      held=false;game.releaseBomb();
     },
     sensitivity(value) {
       sensitivity = Math.max(0.25, Math.min(2.5, value));

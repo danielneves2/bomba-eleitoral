@@ -1,20 +1,21 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @custom-variant dark (&:is(.dark *));
+@font-face{font-family:ArcadePixel;src:url('/fonts/Silkscreen-Regular.ttf') format('truetype');font-weight:400;font-display:swap}
 :root {
-  --background: #100b1c;
+  --background: #06132d;
   --foreground: #f6f3fc;
-  --primary: #d8ff48;
+  --primary: #ffd34d;
   --primary-foreground: #14151a;
-  --secondary: #22152e;
+  --secondary: #102b51;
   --secondary-foreground: #fff;
   --muted: #2b2135;
   --muted-foreground: #aaa0bd;
-  --accent: #ff519f;
+  --accent: #39c9ff;
   --accent-foreground: #fff;
-  --border: #4a365e;
+  --border: #2876b1;
   --input: #765786;
-  --ring: #d8ff48;
+  --ring: #ffd34d;
   --radius: 0rem;
   color-scheme: dark;
 }
@@ -102,7 +103,7 @@ a {
   letter-spacing: -1px;
 }
 .brand svg {
-  color: #d8ff48;
+  color: #ffd34d;
 }
 .brand-small {
   display: block;
@@ -133,7 +134,7 @@ a {
 .eyebrow > span {
   width: 6px;
   height: 6px;
-  background: #d8ff48;
+  background: #ffd34d;
   display: inline-block;
   box-shadow: 0 0 12px #d8ff4860;
   flex-shrink: 0;
@@ -150,7 +151,7 @@ a {
   width: 19px;
 }
 .icon-button:hover {
-  color: #d8ff48;
+  color: #ffd34d;
   background: #ffffff0a;
 }
 .lobby {
@@ -182,7 +183,7 @@ h1 {
   filter: drop-shadow(4px 4px 0 #623da2);
 }
 h1 > span {
-  color: #d8ff48;
+  color: #ffd34d;
   font-size: 0.81em;
 }
 .title-dot {
@@ -338,7 +339,7 @@ h1 > span {
   justify-content: center;
   gap: 15px;
   color: #17200b;
-  background: #d8ff48;
+  background: #ffd34d;
   font-size: 15px;
   font-weight: 900;
   letter-spacing: 0.8px;
@@ -368,8 +369,8 @@ h1 > span {
   font: 12px/1.6 monospace;
 }
 .mode-select {
-  display: flex !important;
-  gap: 24px !important;
+  display: flex;
+  gap: 24px;
   margin-top: 20px;
 }
 .mode-select label {
@@ -380,8 +381,8 @@ h1 > span {
   color: #a99bb9;
   cursor: pointer;
 }
-.mode-select label:first-child {
-  color: #d8ff48;
+.mode-select label:has([aria-checked="true"]) {
+  color: #ffd34d;
 }
 .mode-select [data-slot='radio-group-item'] {
   width: 13px;
@@ -390,7 +391,7 @@ h1 > span {
 .mode-select [data-slot='radio-group-indicator'] span {
   width: 6px;
   height: 6px;
-  background: #d8ff48;
+  background: #ffd34d;
 }
 .arena-label {
   position: absolute;
@@ -534,7 +535,7 @@ h1 > span {
 .score strong {
   font: 29px monospace;
   font-weight: 900;
-  color: #d8ff48;
+  color: #ffd34d;
   display: block;
 }
 .score > span {
@@ -588,7 +589,7 @@ h1 > span {
 .bomb-stock > svg {
   width: 30px;
   height: 30px;
-  color: #d8ff48;
+  color: #ffd34d;
 }
 .bomb-stock small {
   font: 12px monospace;
@@ -668,11 +669,11 @@ kbd {
   margin-top: 5px;
 }
 .special-button.charged {
-  border-color: #d8ff48;
+  border-color: #ffd34d;
 }
 .special-button.charged > svg,
 .special-button.charged small {
-  color: #d8ff48;
+  color: #ffd34d;
 }
 .special-button kbd {
   margin-left: auto;
@@ -682,7 +683,7 @@ kbd {
   left: 0;
   bottom: 0;
   height: 3px;
-  background: #d8ff48;
+  background: #ffd34d;
 }
 .controls-strip {
   position: fixed;
@@ -706,7 +707,7 @@ kbd {
   left: 50%;
   transform: translateX(-50%) rotate(-2deg);
   padding: 12px 22px;
-  background: #d8ff48;
+  background: #ffd34d;
   color: #17200b;
   font:
     25px Impact,
@@ -731,7 +732,7 @@ kbd {
   font:
     70px Impact,
     sans-serif;
-  color: #d8ff48;
+  color: #ffd34d;
   transform: rotate(6deg);
   text-shadow: 4px 4px #812d6e;
   pointer-events: none;
@@ -776,7 +777,7 @@ kbd {
   box-shadow: 8px 8px 0 #080610;
 }
 .game-modal > small {
-  color: #d8ff48;
+  color: #ffd34d;
   font: 12px monospace;
   letter-spacing: 2px;
 }
@@ -809,7 +810,7 @@ kbd {
   text-align: center;
 }
 .trophy {
-  color: #d8ff48;
+  color: #ffd34d;
   margin: 0 auto 20px;
   width: 42px;
   height: 42px;
@@ -822,7 +823,7 @@ kbd {
 }
 .result-stats strong {
   font: 34px monospace;
-  color: #d8ff48;
+  color: #ffd34d;
 }
 .result-stats small {
   display: block;
@@ -861,7 +862,7 @@ kbd {
 }
 .game-modal .hint {
   font-size: 14px;
-  color: #d8ff48;
+  color: #ffd34d;
 }
 .credits {
   margin-top: 25px;
@@ -901,7 +902,7 @@ kbd {
 }
 .error-panel button {
   padding: 10px 15px;
-  background: #d8ff48;
+  background: #ffd34d;
   color: #151a10;
   font-size: 14px;
 }
@@ -1277,15 +1278,15 @@ kbd {
     grid-column: 1;
   }
   .touch-dpad button:active {
-    background: #d8ff48;
+    background: #ffd34d;
     color: #15151b;
   }
   .touch-bomb {
     pointer-events: auto;
     width: 65px;
     height: 65px;
-    border-color: #d8ff48;
-    color: #d8ff48;
+    border-color: #ffd34d;
+    color: #ffd34d;
     display: grid;
     place-items: center;
   }
@@ -1411,7 +1412,7 @@ kbd {
   font:
     150px Impact,
     sans-serif;
-  color: #d8ff48;
+  color: #ffd34d;
   line-height: 1.2;
 }
 .round-countdown small {
@@ -1433,7 +1434,7 @@ kbd {
   background: #150d26ed;
   border: 1px solid #d8ff48;
   padding: 12px 18px;
-  color: #d8ff48;
+  color: #ffd34d;
   box-shadow: 0 6px 25px #0005;
 }
 .cook-hud > div:first-child {
@@ -1499,7 +1500,7 @@ kbd {
   margin-bottom: 18px;
 }
 .aim-settings strong {
-  color: #d8ff48;
+  color: #ffd34d;
 }
 .aim-settings small {
   font-size: 12px;
@@ -1512,12 +1513,12 @@ kbd {
   background: #483354;
 }
 .aim-settings [data-slot='slider-range'] {
-  background: #d8ff48;
+  background: #ffd34d;
 }
 .aim-settings [data-slot='slider-thumb'] {
   width: 18px;
   height: 18px;
-  background: #d8ff48;
+  background: #ffd34d;
 }
 .winner-portrait {
   position: relative;
@@ -1569,7 +1570,7 @@ kbd {
 }
 .spectator-banner button {
   background: none;
-  color: #d8ff48;
+  color: #ffd34d;
   text-decoration: underline;
   font-size: 13px;
 }
@@ -1715,3 +1716,47 @@ kbd {
 .winner-portrait{background-color:#182a41;width:220px;height:220px;box-shadow:0 0 36px #e8b54820}
 @media(max-height:800px) and (min-width:950px){.lobby-main{width:635px}.lobby h1{font-size:56px}.character .portrait{aspect-ratio:1}.character-name{min-height:28px;font-size:12px}.character>small{font-size:10px}.intro{display:none}.eyebrow{font-size:11px;margin-bottom:12px}.lobby-footer{margin-top:17px}.lobby{padding-top:14px}}
 @media(max-width:600px){.character .portrait{aspect-ratio:1}.lobby h1{font-size:58px}.lobby-main{width:100%}.character-name{font-size:13px}.intro{font-size:14px;margin-bottom:18px}}
+/* Arcade cabinet palette and centered scene composition. */
+
+body,.arcade{background:#06132d}
+.vignette{background:linear-gradient(180deg,#04132d55 0%,#04132d12 28%,#03122cdc 85%),linear-gradient(90deg,#00143455,transparent 30%,transparent 70%,#00143455)}
+.topbar{height:68px;background:#05153088;border-bottom:2px solid #2676b155}
+.brand,.top-label,.choose-heading>span,.play-button,.mode-select,.team-choice,.arena-card strong,.draft-slot strong,.game-modal h2,.flyby-caption strong{font-family:ArcadePixel,monospace}
+.brand{font-size:14px;letter-spacing:0;line-height:1.1}.brand-small{font-size:12px;letter-spacing:0}.brand svg{color:#ffd34d}.brand small{font-size:12px;color:#88b9d7}
+.top-label{color:#b6e5ff;font-size:12px}.icon-button{color:#bde6ff}.icon-button:hover{color:#ffd34d}
+.lobby{min-height:calc(100svh - 68px);padding:12px 3vw 24px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.lobby .scene-logo{position:relative;width:min(700px,75vw);max-width:none;margin:0 auto;line-height:1;filter:drop-shadow(0 9px 0 #0007);text-align:center;aspect-ratio:2043/770}
+.scene-logo img{display:block;width:100%;height:auto;image-rendering:pixelated}.scene-logo>span{display:block;font:clamp(22px,4vw,48px) ArcadePixel,monospace;color:#ffd34d;padding-top:15px;text-shadow:4px 4px #071d40}
+.lobby .lobby-main{width:min(1240px,100%);max-width:none;margin:0 auto;padding:18px 22px;background:#061b38e8;border:3px solid #2685be;box-shadow:0 0 0 3px #061125,0 0 0 5px #105487,0 9px 0 #010913;animation:none}
+.lobby .eyebrow{justify-content:center;color:#b5d8f1;font-size:12px;letter-spacing:1px;margin-bottom:14px}.eyebrow>span,.live-dot,.status-led{background:#ffd34d;box-shadow:none}
+.choose-heading{margin-bottom:12px}.choose-heading small{color:#a9c9df;font-size:14px}
+.lobby .cast{grid-template-columns:repeat(9,minmax(0,1fr));gap:8px}
+.lobby .character{background:#10294a;border:2px solid #325d81;padding-bottom:8px;box-shadow:inset 0 -4px #051730}
+.lobby .character.selected{background:#163959;border-color:#ffd34d;box-shadow:inset 0 -4px #70501b,0 0 0 1px #ffd34d}
+.lobby .character:hover{border-color:#79dbff;transform:translateY(-3px)}
+.lobby .character .portrait{aspect-ratio:1;mask-image:none}
+.lobby .character-name{font-family:ArcadePixel,monospace;font-size:13px;line-height:1.3;letter-spacing:-.5px;padding:0 6px;min-height:34px;color:#fff2cb}
+.lobby .character>small{font-size:12px;padding:4px 6px 0;color:#aac7dc;line-height:1.3}
+.character-number{color:#fbd665;font-size:12px}.selected-mark{color:#ffd34d}
+.lobby .character-info{min-height:65px;padding:10px 0}.character-info>div{color:#ffd34d}.character-info p{color:#ccdeed}
+.lobby .launch-row{width:min(690px,100%);margin:0 auto}
+.play-button{background:#ffd34d;color:#09152a;box-shadow:4px 4px 0 #95611a,inset 0 3px #fff09a;font-size:17px;border:2px solid #ffe783;padding:16px 22px}
+.play-button:hover{background:#ffe77d}.help-button{background:#0b2544;border:2px solid #3293c8;color:#d9f2ff}
+.lobby .mode-select{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:20px;width:100%;font-size:13px}
+.mode-select label{display:flex;align-items:center;gap:8px;padding:12px;background:#081b33;border:2px solid #325776}
+.mode-select label:has([aria-checked="true"]){border-color:#ffd34d;background:#163558}
+.mode-select label span{display:block}.mode-select small{display:block;font:14px Arial,sans-serif;color:#adcde5;margin-top:6px}
+.team-choice{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:12px;font-size:14px}
+.team-choice label{padding:10px;border:2px solid #3283b2;display:flex;gap:8px;align-items:center}.team-choice label:has([aria-checked="true"]){border-color:#ffd34d}
+.team-choice small{flex-basis:100%;font:14px Arial,sans-serif;text-align:center;color:#b7d4e6}
+.future-mode{display:flex;justify-content:center;gap:16px;margin-top:16px;color:#9fb8cb;font-size:14px}.future-mode strong{font-family:ArcadePixel,monospace;font-size:12px}
+.lobby .arena-label{display:none}.lobby .lobby-footer{position:static;width:min(1240px,100%);margin:12px 0 0;color:#b5cfe2}
+.special-button{border-color:#e6b943;background:#0a2545e8}.special-button.charged{border-color:#ffd34d}.special-button>i{background:#ffc94b}.special-button kbd{color:#ffe393}
+.game-modal{background:#071e3a;border:3px solid #2da5df;box-shadow:0 0 0 4px #021127}.game-modal h2{font-size:clamp(25px,4vw,40px);line-height:1.25}
+.arena-roulette{background:linear-gradient(135deg,#061831fa,#071f3df5)}.arena-eyebrow{color:#ffd34d}.arena-roll-track i{background:#ffd34d}
+.team-score{position:fixed;z-index:29;top:148px;left:50%;transform:translateX(-50%);display:flex;gap:4px;background:#06172eee;border:2px solid #3daadd;padding:7px 12px;font:12px ArcadePixel,monospace}
+.team-score span{padding:4px 10px;white-space:nowrap}.team-score .team-left{color:#ffb291}.team-score .team-right{color:#85ddff}.team-score b{font-weight:400}
+.is-teams .invasion-alert{top:194px}
+@media(min-width:1100px) and (max-height:850px){.lobby .scene-logo{width:480px}.lobby .lobby-main{padding:14px 18px}.lobby .character .portrait{aspect-ratio:1.2}.lobby .character>small{display:none}.lobby .eyebrow{display:none}.lobby .character-info{min-height:54px}.lobby .mode-select{margin-top:14px}}
+@media(max-width:1100px){.lobby .cast{grid-template-columns:repeat(5,minmax(0,1fr))}.lobby .scene-logo{width:min(610px,80vw)}.lobby .lobby-main{width:min(880px,100%)}.lobby .mode-select{font-size:12px}.lobby .mode-select label{padding:10px 6px}.lobby .character-name{font-size:14px}}
+@media(max-width:600px){.topbar{height:62px;padding:0 18px}.brand small{display:none}.lobby{padding:12px 12px 24px;gap:14px}.lobby .scene-logo{width:95%;max-width:440px}.lobby .lobby-main{padding:14px 10px}.lobby .eyebrow{font-size:10px;letter-spacing:0}.lobby .cast{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.lobby .character-name{font-size:12px;min-height:32px}.lobby .character>small{font-size:12px}.choose-heading small{display:none}.lobby .mode-select{grid-template-columns:1fr;font-size:13px;gap:6px}.lobby .mode-select label{padding:10px}.future-mode{flex-direction:column;align-items:center;gap:5px}.team-choice{gap:6px}.team-choice small{font-size:13px}.team-score{top:142px;padding:4px 2px;font:10px monospace;width:max-content;max-width:96vw}.team-score span{padding:3px 5px}.flyby-caption strong{font-size:22px}.game-modal h2{font-size:26px}}

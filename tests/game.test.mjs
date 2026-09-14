@@ -638,4 +638,47 @@ test('E equips a visible state for all three personal weapons without requiring 
     if(character===8){assert.equal(s.chairReady,true);assert.equal(g.chairs.length,0);g.phase='paused';assert.equal(g.special(),false);assert.equal(g.chairReady,true);g.phase='playing';assert.equal(g.special(),true);assert.equal(g.chairReady,false);assert.equal(g.chairs.length,1);assert.equal(g.special(),false);}
   }
 });
+test('every character can lead either three-person team with unique safe spawns',()=>{
+  for(const side of ['left','right'])for(let character=0;character<9;character++){
+    const g=new Match(71);g.reset(character,`teams-${side}`);
+    const actors=[g.player,...g.enemies];assert.equal(actors.length,6);assert.equal(g.enemies.length,5);
+    for(const team of ['left','right'])assert.equal(actors.filter(a=>a.team===team).length,3);
+    assert.equal(new Set([character,...g.enemies.map(e=>e.skin)]).size,6);
+    for(const a of actors){assert.equal(a.hp,3);assert.equal(g.map[a.z][a.x],0);}
+    assert.equal(g.snapshot().enemies,3);
+  }
+});
+test('teams ignore friendly bombs and specials but retain self and invader damage',()=>{
+  const g=new Match(12);g.reset(6,'teams-left');g.countdown=0;
+  g.map=Array.from({length:15},(_,z)=>Array.from({length:15},(_,x)=>x===0||z===0||x===14||z===14?1:0));
+  const ally=g.enemies.find(e=>e.team===g.player.team),rival=g.enemies.find(e=>e.team!==g.player.team);
+  assert.equal(g.hurtEnemy(ally,'player'),false);assert.equal(g.hurtEnemy(ally,'special',2),false);
+  assert.equal(g.hurtEnemy(ally,ally.id),true);ally.invulnerable=0;assert.equal(g.hurtEnemy(ally,'invader'),true);
+  assert.equal(g.hurtEnemy(rival,'special'),true);
+  g.player.invulnerable=0;g.fires=[{id:91,x:1,z:1,life:1,owner:ally.id}];g.tick(.05);assert.equal(g.player.hp,3);
+  g.fires=[{id:92,x:1,z:1,life:1,owner:'player'}];g.tick(.05);assert.equal(g.player.hp,2);
+});
+test('team victory survives player elimination and draws remain possible',()=>{
+  const g=new Match(4);g.reset(0,'teams-left');g.player.hp=0;
+  assert.equal(g.resolveWinner(),false);
+  for(const e of g.enemies)if(e.team==='right')e.hp=0;
+  assert.equal(g.resolveWinner(),true);assert.equal(g.phase,'won');assert.equal(g.winnerTeam,'left');
+  g.reset(0,'teams-left');g.player.hp=0;for(const e of g.enemies)if(e.team==='left')e.hp=0;
+  g.resolveWinner();assert.equal(g.phase,'lost');assert.equal(g.winnerTeam,'right');
+  for(const e of g.enemies)e.hp=0;g.resolveWinner();assert.equal(g.phase,'draw');
+});
+test('Bukele montage closes three cages and gives one speech while match remains frozen',()=>{
+  const g=clean();g.invasion.kind='bukele';g.invasion.stage='warning';g.invasion.warning=.01;
+  g.tick(.05);assert.equal(g.invasion.intro,5);
+  for(let i=0;i<100;i++)g.tick(.05);
+  assert.equal(g.events.filter(e=>e.type==='cage-slam').length,3);assert.equal(g.events.filter(e=>e.type==='invader-speech').length,1);assert.equal(g.elapsed,0);
+});
+test('Trump arrival camera remains centered and continuous across former cuts',()=>{
+  const focus={x:18.9,y:6.15,z:18.9};
+  for(const t of [.34,.67]){
+    const a=arrivalCamera('trump',t-.0001,focus),b=arrivalCamera('trump',t+.0001,focus);
+    assert.ok(Math.hypot(a.position.x-b.position.x,a.position.y-b.position.y,a.position.z-b.position.z)<.01);
+    assert.deepEqual(a.target,focus);assert.deepEqual(b.target,focus);
+  }
+});
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

@@ -1,0 +1,7 @@
+{
+  "tool": "imagegen",
+  "asset": "/logo-pixel-v15.png",
+  "reference": "User-supplied Bomba Eleitoral logo crop",
+  "prompt": "Use case: background-extraction. Asset type: transparent PNG bitmap logo for a pixel-art browser game. Input image 1 is the edit target. Extract and preserve the existing two-line logo exactly, retaining its chunky block pixel lettering, colors, outlines, shading and silhouette. First line reads BOMBA, with the existing black round lit bomb and orange/yellow fuse spark replacing the letter O. Second line reads ELEITORAL in off-white. Preserve yellow-to-orange first-line letters, the black dimensional shadow, electric blue stepped pixel outlines, and authentic crisp pixel edges. Change only the surroundings: remove the entire navy background, confetti, flags, poles, stars unrelated to the fuse spark, and the partial character below the lettering. Every pixel outside the logo silhouette must have genuine alpha transparency, including holes and negative spaces between letters. No checkerboard baked into pixels, no colored background. Wide aspect ratio, centered isolated logo, complete fuse spark and lettering uncropped with small transparent padding. No extra words, no additional objects, no new decorative frame. Exact text: BOMBA ELEITORAL.",
+  "integration": "The returned RGB image includes a checkerboard; loadCutout removes the neutral edge-connected background at runtime, preserving enclosed logo details."
+}

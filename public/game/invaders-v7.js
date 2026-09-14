@@ -1,7 +1,8 @@
 import * as T from '../vendor/three.module.js';
-import { INVASION_INTRO, TRUMP_CHARGE, TRUMP_RADIUS } from './invasion.mjs?v=14';
+import { INVASION_INTRO, TRUMP_CHARGE, TRUMP_RADIUS } from './invasion.mjs?v=15';
 import { createMissileFactory } from './missile-model.js?v=11';
 import { loadCutout } from './cutouts-v7.js';
+import { loadCharacterAtlas } from './characters.js?v=4';
 
 export function createInvaderView({ scene, game, box, mesh, material, bombModel, materials, geometries, textures, onError }) {
   const root = new T.Group(); scene.add(root);
@@ -64,7 +65,29 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     }
     box(cage,.28,.35,.15,.22,1.4,1.3,gold);return cage;
   }
-  const entranceCage=cageModel();root.add(entranceCage);
+  const pressStage=new T.Group();root.add(pressStage);
+  box(pressStage,12,.35,7,0,.15,0,blue);
+  box(pressStage,2.4,.3,2.2,0,.5,2.1,gold);
+  const podium=new T.Group();podium.position.set(0,0,3.05);pressStage.add(podium);
+  box(podium,1.55,1.25,.55,0,.95,0,trim);box(podium,1.8,.12,.8,0,1.62,0,gold);
+  box(podium,.65,.48,.06,0,1.04,.31,blue);
+  const mic=new T.Group();mic.position.set(.34,1.68,0);podium.add(mic);
+  box(mic,.055,.58,.055,0,.29,0,metal);const micHead=mesh(mic,shadowGeo,trim,0,.62,0);micHead.scale.setScalar(.22);micHead.rotation.x=-.4;
+  box(mic,.2,.18,.28,0,.58,.02,trim);
+  const captiveMats=Array.from({length:9},spriteMaterial);
+  loadCharacterAtlas().then(canvas=>{
+    if(disposed)return;
+    const atlas=new T.CanvasTexture(canvas);textures.push(atlas);
+    captiveMats.forEach((mat,i)=>{
+      const tx=atlas.clone(),[top,height]=[[0,425],[425,430],[855,399]][Math.floor(i/3)];
+      tx.colorSpace=T.SRGBColorSpace;tx.magFilter=T.NearestFilter;tx.minFilter=T.NearestFilter;tx.generateMipmaps=false;
+      tx.repeat.set(1/3,height/1254);tx.offset.set((i%3)/3,1-(top+height)/1254);tx.needsUpdate=true;textures.push(tx);mat.map=tx;mat.needsUpdate=true;
+    });
+  }).catch(()=>{});
+  const captives=[-3.5,0,3.5].map((x,i)=>{
+    const cage=cageModel();pressStage.add(cage);
+    const figure=mesh(pressStage,geo,captiveMats[i],x,1.5,-1.3);return {x,cage,figure};
+  });
   const cells=new Map();
   const parade = new T.Group(); root.add(parade);
   box(parade, 3.2, .35, 2.7, 0, .17, 0, blue);
@@ -115,7 +138,7 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     trump.visible = invasion.kind === 'trump' && (arrival || active && invasion.actor.state !== 'spent');
     parade.visible = invasion.kind === 'trump' && arrival;
     kim.visible = invasion.kind === 'kim' && (arrival || active); launcher.visible = kim.visible;
-    const t = 1 - invasion.intro / INVASION_INTRO;
+    const t = 1 - invasion.intro / invasion.introDuration;
     if(dt>0&&['trump','bukele'].includes(invasion.kind)&&game.phase!=='paused') {
       const a=invasion.actor,kind=invasion.kind,figure=(kind==='trump'?trump:bukele).userData.figure;
       const moving=active&&a.state==='hunting'&&a.walk!==lastWalk;
@@ -127,15 +150,24 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
       lastWalk=a.walk;
     }
     bukele.visible=invasion.kind==='bukele'&&(arrival||active);
-    entranceCage.visible=invasion.kind==='bukele'&&arrival;
+    pressStage.visible=invasion.kind==='bukele'&&arrival;
     if(bukele.visible) {
       const a=invasion.actor;
-      bukele.position.set(a.x*2.7,0,a.z*2.7);
+      pressStage.position.set(18.9,4.2,18.9);
+      bukele.position.set(arrival?18.9:a.x*2.7,arrival?4.85:0,arrival?21.1:a.z*2.7);
       bukele.rotation.y=Math.atan2(camera.position.x-bukele.position.x,camera.position.z-bukele.position.z);
       bukele.userData.figure.rotation.z=arrival?Math.sin(t*6)*.025:Math.sin(a.walk)*.035;
-      bukele.position.y=arrival?0:Math.abs(Math.sin(a.walk))*.05;
-      entranceCage.position.set(a.x*2.7+3,Math.max(0,1-t/.55)*7,a.z*2.7);
-      focus.set(a.x*2.7+.8,1.65,a.z*2.7);
+      bukele.position.y=arrival?4.85+Math.sin(t*24)*.025:Math.abs(Math.sin(a.walk))*.05;
+      if(arrival) {
+        captives.forEach(({x,cage,figure},i)=>{
+          const drop=Math.max(0,Math.min(1,(t-.02-i*.1)/.06));
+          cage.position.set(x,.3+(1-drop)*7,-1.3);
+          figure.material=captiveMats[game.enemies[i]?.skin??i];figure.position.y=1.5+(drop<1?Math.abs(Math.sin(t*35+i))*.16:0);
+          figure.quaternion.copy(camera.quaternion);
+        });
+        mic.rotation.z=t>.4?Math.sin(t*20)*.035:0;
+        focus.set(18.9,5.65,20.1);
+      } else focus.set(a.x*2.7,1.65,a.z*2.7);
     }
     const cageIds=new Set(invasion.cages.map(c=>c.id));
     for(const [id,c] of cells)if(!cageIds.has(id)){root.remove(c);cells.delete(id);}
@@ -162,16 +194,17 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     }
     if (trump.visible) {
       const a = invasion.actor;
-      trump.position.set(a.x * 2.7, arrival ? .45 : charging ? 0 : Math.abs(Math.sin(a.walk)) * .05, a.z * 2.7);
+      const entryX=arrival?18.9:a.x*2.7,entryZ=arrival?18.9:a.z*2.7;
+      trump.position.set(entryX, arrival ? 4.65 : charging ? 0 : Math.abs(Math.sin(a.walk)) * .05, entryZ);
       trump.rotation.y = Math.atan2(camera.position.x - trump.position.x, camera.position.z - trump.position.z);
-      trump.userData.figure.rotation.z = charging ? 0 : Math.sin(arrival ? t * 12 : a.walk) * .035;
-      trump.scale.setScalar(arrival ? 1 + Math.sin(t * Math.PI) * .06 : 1+heat*.12);
+      trump.userData.figure.rotation.z = charging ? 0 : Math.sin(arrival ? t * 5 : a.walk) * .025;
+      trump.scale.setScalar(arrival ? 1 : 1+heat*.12);
       if (arrival) {
-        parade.position.set(a.x * 2.7, 0, a.z * 2.7);
-        flagPanels.forEach((panel, i) => panel.position.z = Math.sin(t * 14 - i * .55) * .16);
-        eagle.position.set(Math.cos(t * Math.PI * 2) * 2, 4.6 + Math.sin(t * 10) * .25, .7);
+        parade.position.set(entryX, 4.2, entryZ);
+        flagPanels.forEach((panel, i) => panel.position.z = Math.sin(t * 9 - i * .4) * .12);
+        eagle.position.set(Math.sin(t * Math.PI) * 1.6, 4.2 + Math.sin(t * 6) * .16, -.4);
         eagle.quaternion.copy(camera.quaternion); eagle.rotation.z += Math.sin(t * 10) * .12;
-        focus.set(trump.position.x - .5, 2.7, trump.position.z);
+        focus.set(trump.position.x, 6.15, trump.position.z);
       }
     }
     if (kim.visible) {

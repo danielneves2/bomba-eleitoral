@@ -26,12 +26,14 @@ export class Invasion {
     this.warning = INVASION_WARNING;
     this.remaining = INVASION_DURATION;
     this.intro = 0;
+    this.introDuration=INVASION_INTRO;
     this.shots = 0;
     this.shotClock = 2;
     this.targets = [];
     this.impacts = [];
     this.lastTarget = null;
     this.launchIndex = 0;
+    this.captureIndex=0;this.speechPlayed=false;
     this.cages = [];
     this.captured = new Set();
     this.actor = { x: 13, z: 7, target: null, think: 0, walk: 0, state: 'hunting', charge: 0, beep: 0 };
@@ -73,13 +75,19 @@ export class Invasion {
         game.events.push({ type: 'invasion-beep', kind: this.kind });
       if (this.warning <= 0) {
         this.stage = 'arrival';
-        this.intro = INVASION_INTRO;
+        this.introDuration=this.kind==='bukele'?5:this.kind==='trump'?4:INVASION_INTRO;
+        this.intro = this.introDuration;
         game.events.push({ type: 'invasion-enter', kind: this.kind });
       }
       return this.stage === 'arrival';
     }
     if (this.stage === 'arrival') {
       this.intro = Math.max(0, this.intro - dt);
+      if(this.kind==='bukele') {
+        const progress=1-this.intro/this.introDuration;
+        while(this.captureIndex<3&&progress>=.08+this.captureIndex*.1)game.events.push({type:'cage-slam',index:this.captureIndex++});
+        if(progress>=.4&&!this.speechPlayed){this.speechPlayed=true;game.events.push({type:'invader-speech',text:'Todo mundo na grade. A ordem chegou!'});}
+      }
       if(this.kind === 'kim') {
         const progress=1-this.intro/INVASION_INTRO;
         while(this.launchIndex<3 && progress>=.4+this.launchIndex*.13) {
@@ -166,7 +174,7 @@ export class Invasion {
     return false;
   }
   snapshot() {
-    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, duration: INVASION_DURATION, wave: this.wave, lineup:this.lineup, schedule:this.schedule,
+    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, introDuration:this.introDuration, duration: INVASION_DURATION, wave: this.wave, lineup:this.lineup, schedule:this.schedule,
       caged: this.cages.find(c=>c.victim.id===undefined)?.time || 0,
       targeted: this.targets.some(t => t.victim === 'player'), shots: this.shots, charging: this.actor.state === 'charging', charge: this.actor.charge/TRUMP_CHARGE };
   }

@@ -115,7 +115,8 @@ const invaderNames:Record<string,string>={putin:'Putin',trump:'Trump',kim:'Kim J
 const invaderPowers:Record<string,string>={putin:'Ataque aéreo',trump:'Explosão ambulante',kim:'Mísseis',bukele:'Gaiola por 6s'};
 const invaderIds=['putin','trump','kim','bukele'];
 const initial = {
-  invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:14,duration:14,intro:0,targeted:false,shots:0,wave:1,charging:false,charge:0,caged:0,lineup:[] as string[],schedule:[] as number[] },
+  invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:14,duration:14,intro:0,introDuration:3,targeted:false,shots:0,wave:1,charging:false,charge:0,caged:0,lineup:[] as string[],schedule:[] as number[] },
+  teamMode:false,playerTeam:'left',winnerTeam:null as string|null,teams:[] as Array<{id:string;alive:number}>,roster:[] as Array<{skin:number;team:string;hp:number}>,
   phase: 'menu',
   countdown: 0,
   arena: {id:'circo',name:'Circo do Caos',subtitle:'',color:'#d5ff46'},
@@ -173,6 +174,7 @@ type GameApi = {
 };
 type GameWindow = Window & {
   loadCharacterAtlas: () => Promise<HTMLCanvasElement>;
+  loadGameLogo:()=>Promise<string>;
   createBombaGame: (
     canvas: HTMLCanvasElement,
     onState: (state: Snapshot) => void,
@@ -186,20 +188,23 @@ export default function Home() {
   const [selected, select] = useState(0),
     [state, setState] = useState<Snapshot>(initial),
     [ready, setReady] = useState(false),
+    [logo,setLogo]=useState(''),
     [error, setError] = useState(''),
     [muted, setMuted] = useState(false),
     [help, setHelp] = useState(false),
     [mode, setMode] = useState('caos'),
+    [teamSide,setTeamSide]=useState('left'),
     [sensitivity, setSensitivity] = useState(1);
   useEffect(() => {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=14';
+    script.src = '/game/boot.js?v=15';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
         const gameWindow = window as unknown as GameWindow;
+        gameWindow.loadGameLogo().then(url=>{if(!disposed)setLogo(url);}).catch(()=>{});
         await gameWindow.loadCharacterAtlas();
         if (disposed || !canvas.current) return;
         api.current = gameWindow.createBombaGame(
@@ -227,7 +232,7 @@ export default function Home() {
     menu = state.phase === 'menu',
     ch = cast[selected];
   const start = () => {
-    api.current?.start(selected, mode);
+    api.current?.start(selected, mode==='teams'?`teams-${teamSide}`:mode);
     setHelp(false);
   };
   const fullscreen = () => {
@@ -250,7 +255,7 @@ export default function Home() {
     window.speechSynthesis.speak(line);
   };
   return (
-    <main className={`arcade ${playing ? 'is-playing' : ''}`}>
+    <main className={`arcade ${playing ? 'is-playing' : ''} ${state.teamMode?'is-teams':''}`}>
       <canvas
         ref={canvas}
         className="world"
@@ -298,25 +303,14 @@ export default function Home() {
       </header>
       {menu && (
         <section className="lobby">
+          <h1 className="scene-logo">{logo?<img src={logo} alt="Bomba Eleitoral" width="2043" height="770"/>:<span>BOMBA<br/>ELEITORAL</span>}</h1>
           <div className="lobby-main">
             <div className="eyebrow">
               <span /> PRIMEIRA PESSOA. ÚLTIMO SOBREVIVENTE.
             </div>
-            <h1>
-              BOMBA
-              <br />
-              <span>
-                ELEITORAL<span className="title-dot">.</span>
-              </span>
-            </h1>
-            <p className="intro">
-              O debate acabou.
-              <br />
-              <strong>Agora é cada um por si.</strong>
-            </p>
             <div className="choose-heading">
               <span>01 / ESCOLHA SEU PERSONAGEM</span>
-              <small>9 figuras. Uma faixa presidencial.</small>
+              <small>{mode==='teams'?'3 de cada lado. Uma equipe vencedora.':'9 figuras. Uma faixa presidencial.'}</small>
             </div>
             <RadioGroup
               className="cast"
@@ -379,16 +373,21 @@ export default function Home() {
               className="mode-select"
               value={mode}
               onValueChange={(v) => setMode(String(v))}
-              aria-label="Intensidade"
+              aria-label="Modo de jogo"
             >
               <label htmlFor="mode-caos">
-                <RadioGroupItem id="mode-caos" value="caos" /> Caos total{' '}
-                <Flame size={14} />
+                <RadioGroupItem id="mode-caos" value="caos" /><span>CONTRA O SISTEMA<small>Você contra 8 bots</small></span>
               </label>
-              <label htmlFor="mode-treino">
-                <RadioGroupItem id="mode-treino" value="treino" /> Aquecimento
+              <label htmlFor="mode-teams">
+                <RadioGroupItem id="mode-teams" value="teams" /><span>ESQUERDA × DIREITA<small>Equipes de 3 · com bots</small></span>
               </label>
+              <label htmlFor="mode-treino"><RadioGroupItem id="mode-treino" value="treino"/><span>AQUECIMENTO<small>Treine contra 3 bots</small></span></label>
             </RadioGroup>
+            {mode==='teams'&&<RadioGroup className="team-choice" value={teamSide} onValueChange={v=>setTeamSide(String(v))} aria-label="Sua equipe">
+              <label htmlFor="side-left"><RadioGroupItem id="side-left" value="left"/> ESQUERDA</label><label htmlFor="side-right"><RadioGroupItem id="side-right" value="right"/> DIREITA</label>
+              <small>Você + 2 aliados contra 3 rivais. Sem fogo amigo. Equipes satíricas: qualquer personagem pode jogar dos dois lados.</small>
+            </RadioGroup>}
+            <div className="future-mode"><strong>CONTRA A POPULAÇÃO</strong><span>Multiplayer online · próxima etapa</span></div>
           </div>
           <aside className="arena-label">
             <div className="lobby-champion" aria-hidden="true"><div className={`portrait portrait-${selected}`} /></div>
@@ -416,7 +415,7 @@ export default function Home() {
           </aside>
           <footer className="lobby-footer">
             <span>
-              <span className="status-led" /> SINGLE PLAYER · ARENA 3D
+              <span className="status-led" /> {mode==='teams'?'3 × 3 · EQUIPES COM BOTS':'CONTRA BOTS · ARENA 3D'}
             </span>
             <span>SÁTIRA FICTÍCIA · SEM FILIAÇÃO POLÍTICA</span>
             <button onClick={() => setHelp(true)}>
@@ -438,7 +437,7 @@ export default function Home() {
               </div>
             </aside>
           )}
-          {state.invasion.stage === 'arrival' && ['playing','spectating','paused'].includes(state.phase) && <div className="flyby-caption"><span>VISITA NADA DIPLOMÁTICA</span><strong>{state.invasion.kind === 'putin' ? 'PUTIN CHEGOU PELO AR' : state.invasion.kind === 'kim' ? 'PEQUENO KIM. ENORME PROBLEMA.' : state.invasion.kind === 'bukele' ? 'BUKELE TROUXE A GAIOLA' : 'TRUMP CHEGOU SE ACHANDO'}</strong><small>{state.invasion.kind === 'kim' ? 'Ele fica de boa. Os mísseis é que vão passear.' : 'A partida continua após a chegada'}</small></div>}
+          {state.invasion.stage === 'arrival' && ['playing','spectating','paused'].includes(state.phase) && <div className="flyby-caption"><span>VISITA NADA DIPLOMÁTICA</span><strong>{state.invasion.kind === 'putin' ? 'PUTIN CHEGOU PELO AR' : state.invasion.kind === 'kim' ? 'PEQUENO KIM. ENORME PROBLEMA.' : state.invasion.kind === 'bukele' ? 'TODO MUNDO NA GRADE' : 'WELCOME TO AMERICA'}</strong><small>{state.invasion.kind === 'kim' ? 'Ele fica de boa. Os mísseis é que vão passear.' : state.invasion.kind==='trump'?'BIG EGO. BIG BOOM.':state.invasion.kind==='bukele'?'O microfone é dele. A gaiola pode ser sua.':'A partida continua após a chegada'}</small></div>}
           {state.invasion.caged > 0 && playing && <div className="targeted-alert cage-alert" role="status">PRESO POR BUKELE · {state.invasion.caged.toFixed(1)}s <small>Você ainda pode mirar, lançar bombas e usar o especial.</small></div>}
           {state.invasion.charging && state.invasion.stage === 'active' && playing && <div className="targeted-alert trump-charge-alert">TRUMP VAI EXPLODIR · {Math.max(0,2.4*(1-state.invasion.charge)).toFixed(1)}s · AFASTE-SE!</div>}
           {state.invasion.targeted && ['playing','spectating'].includes(state.phase) && <div className="targeted-alert" role="alert">{state.invasion.kind === 'kim' ? 'FOGUETE NA SUA DIREÇÃO' : 'NA MIRA DE PUTIN'} · SAIA DO CÍRCULO!</div>}
@@ -491,6 +490,7 @@ export default function Home() {
             <span />
             <span />
           </div>
+          {state.teamMode&&<div className="team-score" aria-label="Sobreviventes por equipe">{state.teams.map(team=><span key={team.id} className={`team-${team.id}`}><b>{team.id==='left'?'ESQUERDA':'DIREITA'}</b> {team.alive}/3 {team.id===state.playerTeam?'· SEU TIME':''}</span>)}</div>}
           {state.hitMarker > 0 && <output className="hit-feedback">{state.hitText}</output>}
           <div className="damage-feedback" aria-hidden="true" style={{opacity:Math.min(1,state.damageFlash/.4)}} />
           <div className="shield-feedback" aria-hidden="true" style={{opacity:Math.min(1,state.shieldFlash/.35)}} />
@@ -712,7 +712,7 @@ export default function Home() {
               {state.winner >= 0 ? 'RESULTADO DA ELEIÇÃO' : 'SEM SOBREVIVENTES'}
             </small>
             <h2>
-              {state.winner >= 0
+              {state.teamMode&&state.winnerTeam?`${state.winnerTeam==='left'?'ESQUERDA':'DIREITA'} VENCEU!`:state.winner >= 0
                 ? `${cast[state.winner]?.name.toUpperCase()} ELEITO!`
                 : 'ELEIÇÃO ANULADA!'}
             </h2>
@@ -724,7 +724,7 @@ export default function Home() {
               </div>
             )}
             <p>
-              {state.phase === 'won'
+              {state.teamMode&&state.winnerTeam?(state.phase==='won'?'Sua equipe levou a faixa!':'A equipe rival levou a faixa. Prepare a revanche.'):state.phase === 'won'
                 ? 'A faixa é sua. Último sobrevivente, presidente do circo!'
                 : state.winner >= 0
                   ? 'Seu rival ficou com a faixa. O próximo mandato pode ser seu.'

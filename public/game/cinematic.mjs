@@ -4,11 +4,16 @@ export function arrivalCamera(kind, progress, focus, reduced = false) {
   const t = Math.max(0, Math.min(1, progress));
   const shot = reduced ? 0 : t < .34 ? 0 : t < .67 ? 1 : 2;
   const launch = Math.max(0, (t - .64) / .36);
+  if(kind==='trump') {
+    const ease=reduced?0:t*t*(3-2*t);
+    // Continuous centered dolly: no cut can push the small sprite off screen.
+    return {position:{x:focus.x+(reduced?0:Math.sin(t*Math.PI)*.7),y:focus.y+1.5-ease*.5,z:focus.z+11-ease*3},target:{x:focus.x,y:focus.y,z:focus.z},fov:58-ease*4,shot};
+  }
   const shots = {
     bukele: [
-      {eye:[6,3,12],aim:[0,0,0],fov:60},
-      {eye:[1,.1,5],aim:[0,0,0],fov:48},
-      {eye:[-6,3,11],aim:[1,.2,0],fov:62},
+      {eye:[0,4,15],aim:[0,0,-2],fov:60},
+      {eye:[2,1.2,8],aim:[0,.3,1],fov:54},
+      {eye:[0,.5,6],aim:[0,.25,1],fov:50},
     ],
     putin: [
       { eye: [7, 4, 12], aim: [0, .4, 0], fov: 58 },

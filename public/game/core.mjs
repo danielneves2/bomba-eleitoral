@@ -1,5 +1,5 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
-import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=14';
+import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=15';
 import { circleCells } from './impact.mjs?v=11';
 import { clearSight } from './impact.mjs?v=11';
 export const SIZE = 15;
@@ -218,11 +218,14 @@ export class Match {
   reset(character = 0, mode = 'caos') {
     this.character = character;
     this.mode = mode;
+    this.teamMode=mode.startsWith('teams-');
+    this.playerTeam=mode==='teams-right'?'right':'left';this.winnerTeam=null;
     this.arenaIndex=Math.floor(this.random()*ARENAS.length);
     this.arena=ARENAS[this.arenaIndex];
     this.map = generateMap(this.random,this.arena.id);
     this.phase = 'playing';
     this.player = {
+      team:this.teamMode?this.playerTeam:null,
       x: 1,
       z: 1,
       yaw: -Math.PI / 2,
@@ -305,6 +308,15 @@ export class Match {
         walk: 0,
       }),
     );
+    if(this.teamMode) {
+      const squads={left:[0,2,7],right:[1,4,6]},opposite=this.playerTeam==='left'?'right':'left';
+      const allies=squads[this.playerTeam].filter(s=>s!==character).slice(0,2);
+      const used=new Set([character,...allies]);
+      const rivals=[...squads[opposite],...NAMES.map((_,i)=>i)].filter((s,i,list)=>!used.has(s)&&list.indexOf(s)===i).slice(0,3);
+      const spots=[[1,7],[1,13],[13,1],[13,7],[13,13]];
+      this.enemies=this.enemies.slice(0,5);
+      this.enemies.forEach((e,i)=>{e.skin=[...allies,...rivals][i];e.team=i<2?this.playerTeam:opposite;[e.x,e.z]=spots[i];e.hp=3;});
+    }
     this.invasion = new Invasion(this.random,this.lastOmittedInvader);
     this.lastOmittedInvader=this.invasion.omitted;
     this.events.push({ type: 'reset' });
@@ -313,6 +325,11 @@ export class Match {
     return (
       !this.map[Math.round(z)] || this.map[Math.round(z)][Math.round(x)] !== 0
     );
+  }
+  sameTeam(a,b){return this.teamMode&&a?.team!=null&&a.team===b?.team;}
+  friendlyDamage(actor,owner){
+    const source=owner==='player'||owner==='special'?this.player:this.enemies.find(e=>e.id===owner);
+    return source!==actor&&this.sameTeam(actor,source);
   }
   canMove(x, z, r = 0.21) {
     return ![
@@ -325,7 +342,7 @@ export class Match {
   move(actor, dx, dz) {
     if(this.invasion.cages.some(c=>c.victim===actor&&c.time>0)) { actor.vx=0;actor.vz=0;return; }
     const propertyBlocks = (x, z) => {
-      if (!this.property || this.property.time <= 0 || actor === this.player) return false;
+      if (!this.property || this.property.time <= 0 || actor === this.player || this.sameTeam(actor,this.player)) return false;
       const before = Math.hypot(actor.x - this.property.x, actor.z - this.property.z);
       const after = Math.hypot(x - this.property.x, z - this.property.z);
       return before >= this.property.radius && after < this.property.radius;
@@ -367,7 +384,7 @@ export class Match {
     if(this.swordTime<=0||this.swordCooldown>0||this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
     this.swordCooldown=.24;this.swordSwing=.2;
     const p=this.player;
-    const victim=this.enemies.find(e=>e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
+    const victim=this.enemies.find(e=>!this.sameTeam(e,p)&&e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
       (-(e.x-p.x)*Math.sin(p.yaw)-(e.z-p.z)*Math.cos(p.yaw))>Math.hypot(e.x-p.x,e.z-p.z)*.5&&clearSight(this,p,e));
     const hit=victim&&this.hurtEnemy(victim,'special',2);
     if(hit)victim.invulnerable=.22;
@@ -433,7 +450,13 @@ export class Match {
   }
   resolveWinner() {
     const alive = this.enemies.filter((e) => e.hp > 0);
-    if (this.player.hp > 0 && alive.length === 0) this.winner = this.character;
+    if(this.teamMode) {
+      const survivors=[...(this.player.hp>0?[this.player]:[]),...alive],teams=new Set(survivors.map(a=>a.team));
+      if(teams.size>1)return false;
+      this.winnerTeam=teams.size?[...teams][0]:null;
+      this.winner=this.winnerTeam===this.playerTeam?this.character:survivors[0]?.skin??-2;
+    }
+    else if (this.player.hp > 0 && alive.length === 0) this.winner = this.character;
     else if (this.player.hp <= 0 && alive.length === 1)
       this.winner = alive[0].skin;
     else if (this.player.hp <= 0 && alive.length === 0) this.winner = -2;
@@ -503,7 +526,7 @@ export class Match {
     return true;
   }
   hurtEnemy(enemy, owner = 'special', amount = 1) {
-    if (!enemy || enemy.hp <= 0 || enemy.invulnerable > 0) return false;
+    if (!enemy || enemy.hp <= 0 || enemy.invulnerable > 0 || this.friendlyDamage(enemy,owner)) return false;
     enemy.hp = Math.max(0, enemy.hp - amount);
     enemy.invulnerable = 0.9;
     const credited = owner === 'player' || owner === 'special';
@@ -846,7 +869,7 @@ export class Match {
         chair.time = 0;
         this.events.push({ type: 'chair-bomb', x: chair.x, z: chair.z });
       }
-      const victim = this.enemies.find((e) => e.hp > 0 && Math.hypot(e.x - chair.x, e.z - chair.z) < 0.62);
+      const victim = this.enemies.find((e) => !this.sameTeam(e,p) && e.hp > 0 && Math.hypot(e.x - chair.x, e.z - chair.z) < 0.62);
       if (victim && this.hurtEnemy(victim, 'special')) {
         const length = Math.hypot(chair.vx, chair.vz) || 1;
         for (let n = 0; n < 4; n++) this.move(victim, chair.vx / length * 0.24, chair.vz / length * 0.24);
@@ -871,9 +894,9 @@ export class Match {
       if (e.think <= 0 || !e.target) {
         e.think = 0.24;
         const targets = [
-          ...(p.hp > 0 ? [p] : []),
-          ...this.decoys,
-          ...this.enemies.filter((other) => other.id !== e.id && other.hp > 0),
+          ...(p.hp > 0 && !this.sameTeam(e,p) ? [p] : []),
+          ...(!this.sameTeam(e,p)?this.decoys:[]),
+          ...this.enemies.filter((other) => other.id !== e.id && other.hp > 0 && !this.sameTeam(e,other)),
         ];
         const victim =
           targets.sort(
@@ -911,10 +934,11 @@ export class Match {
         }
       }
       const near =
-        (p.hp > 0 && Math.hypot(p.x - e.x, p.z - e.z) < 5) ||
+        (p.hp > 0 && !this.sameTeam(e,p) && Math.hypot(p.x - e.x, p.z - e.z) < 5) ||
         this.enemies.some(
           (other) =>
             other.id !== e.id &&
+            !this.sameTeam(e,other) &&
             other.hp > 0 &&
             Math.hypot(other.x - e.x, other.z - e.z) < 5,
         );
@@ -948,7 +972,7 @@ export class Match {
     }
     const hit = (a) =>
       this.fires.find(
-        (f) => Math.abs(f.x - a.x) < 0.58 && Math.abs(f.z - a.z) < 0.58,
+        (f) => !this.friendlyDamage(a,f.owner) && Math.abs(f.x - a.x) < 0.58 && Math.abs(f.z - a.z) < 0.58,
       );
     if (p.hp > 0 && hit(p) && p.invulnerable <= 0) {
       if (p.wind > 0) {
@@ -1043,6 +1067,9 @@ export class Match {
   snapshot() {
     return {
       phase: this.phase,
+      teamMode:this.teamMode,playerTeam:this.playerTeam,winnerTeam:this.winnerTeam,
+      teams:['left','right'].map(id=>({id,alive:[this.player,...this.enemies].filter(a=>a.team===id&&a.hp>0).length})),
+      roster:this.teamMode?[{skin:this.character,team:this.player.team,hp:this.player.hp},...this.enemies.map(e=>({skin:e.skin,team:e.team,hp:e.hp}))]:[],
       invasion: this.invasion.snapshot(),
       countdown: this.countdown,
       arena: this.arena,
@@ -1071,7 +1098,7 @@ export class Match {
       chairReady:this.chairReady,
       specialItems: this.specialItems, swordTime: this.swordTime,
       chaos: this.chaos,
-      enemies: this.enemies.filter((e) => e.hp > 0).length,
+      enemies: this.enemies.filter((e) => e.hp > 0&&!this.sameTeam(e,this.player)).length,
       quote: this.quote,
       event: this.notice,
       combo: this.combo,

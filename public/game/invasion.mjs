@@ -9,12 +9,15 @@ export const INVADERS = ['putin', 'trump', 'kim', 'bukele'];
 export const CAGE_DURATION = 6;
 
 export class Invasion {
-  constructor(random) {
-    this.kind = INVADERS[Math.min(INVADERS.length-1, Math.floor(random() * INVADERS.length))];
+  constructor(random, previousOmitted = null) {
+    const pool=INVADERS.slice();
+    for(let i=pool.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+    // No invader misses two consecutive match drafts on this game session.
+    if(pool[3]===previousOmitted){const j=Math.floor(random()*3);[pool[3],pool[j]]=[pool[j],pool[3]];}
+    this.lineup=pool.slice(0,3);this.omitted=pool[3];
+    this.kind = this.lineup[0];
     this.startsAt = 5 + random() * 5;
-    this.returnAt = 90 + random() * 25;
-    const otherInvaders = INVADERS.filter(kind => kind !== this.kind);
-    this.returnKind = otherInvaders[Math.min(otherInvaders.length-1, Math.floor(random() * otherInvaders.length))];
+    this.schedule=[this.startsAt,this.startsAt+30+random()*3,this.startsAt+60+random()*3];
     this.wave = 1;
     this.resetEncounter();
   }
@@ -42,15 +45,24 @@ export class Invasion {
     }
     this.cages=this.cages.filter(c=>c.time>0);
     if (this.stage === 'done') {
-      if (this.wave !== 1 || game.elapsed < this.returnAt) return false;
-      this.wave = 2;
-      this.kind = this.returnKind;
-      this.startsAt = this.returnAt;
+      if (this.wave >= this.lineup.length || game.elapsed < this.schedule[this.wave]) return false;
+      this.kind = this.lineup[this.wave];
+      this.startsAt = this.schedule[this.wave];
+      this.wave++;
       this.resetEncounter();
     }
     if (this.stage === 'scheduled') {
       if (game.elapsed < this.startsAt) return false;
       this.stage = 'warning';
+      if(this.kind==='trump'||this.kind==='bukele') {
+        const options=[];
+        for(let z=1;z<14;z++)for(let x=1;x<14;x++) {
+          const distance=Math.hypot(x-game.player.x,z-game.player.z);
+          if(!game.solid(x,z)&&distance>=4&&distance<=7&&game.path({x,z},[Math.round(game.player.x),Math.round(game.player.z)],new Set()))options.push({x,z,distance});
+        }
+        options.sort((a,b)=>a.distance-b.distance);
+        if(options.length){this.actor.x=options[0].x;this.actor.z=options[0].z;}
+      }
       game.events.push({ type: 'invasion-warning', kind: this.kind });
       return false;
     }
@@ -154,7 +166,7 @@ export class Invasion {
     return false;
   }
   snapshot() {
-    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, duration: INVASION_DURATION, wave: this.wave,
+    return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, duration: INVASION_DURATION, wave: this.wave, lineup:this.lineup, schedule:this.schedule,
       caged: this.cages.find(c=>c.victim.id===undefined)?.time || 0,
       targeted: this.targets.some(t => t.victim === 'player'), shots: this.shots, charging: this.actor.state === 'charging', charge: this.actor.charge/TRUMP_CHARGE };
   }

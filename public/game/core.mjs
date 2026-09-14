@@ -1,8 +1,17 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
-import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=11';
+import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=14';
 import { circleCells } from './impact.mjs?v=11';
 import { clearSight } from './impact.mjs?v=11';
 export const SIZE = 15;
+export const ARENAS = [
+  {id:'circo',name:'Circo do Caos',subtitle:'Luzes, lona e promessas explosivas',color:'#d5ff46'},
+  {id:'favela',name:'Favela',subtitle:'Becos, lajes e muita correria',color:'#ffb04e'},
+  {id:'planalto',name:'Planalto / Congresso',subtitle:'O último debate na Praça dos Poderes',color:'#76ddff'},
+];
+export function arenaRoll(countdown,selected) {
+  const t=Math.max(0,Math.min(1,(6.2-countdown)/2.4));
+  return {index:t>=1?selected:Math.floor((15+selected)*(1-Math.pow(1-t,3)))%ARENAS.length,locked:t>=1};
+}
 export const QUOTES = [
   'Nunca antes na história deste país',
   'Tá ok?',
@@ -24,14 +33,14 @@ export function rng(seed = 14) {
   };
 }
 export const cell = (x, z) => `${Math.round(x)},${Math.round(z)}`;
-export function generateMap(random = Math.random) {
+export function generateMap(random = Math.random, arena = 'circo') {
   const map = Array.from({ length: SIZE }, (_, z) =>
     Array.from({ length: SIZE }, (_, x) =>
       x === 0 || z === 0 || x === 14 || z === 14
         ? 1
-        : x % 2 === 0 && z % 2 === 0
+        : (arena==='favela' ? (z%4===0&&x%3!==1 || x%4===0&&z%4===2) : arena==='planalto' ? (x%4===0&&z%4===0 || z===4&&x%2===0 || z===10&&x%2===0) : x % 2 === 0 && z % 2 === 0)
           ? 1
-          : random() < 0.32
+          : random() < (arena==='planalto'?.26:arena==='favela'?.3:.32)
             ? 2
             : 0,
     ),
@@ -64,6 +73,12 @@ export function generateMap(random = Math.random) {
     map[z][1] = 0;
     map[z][7] = 0;
   }
+  // Connected perimeter and cross streets guarantee routes between every spawn.
+  if(arena!=='circo') {
+    for(let i=1;i<14;i++){map[13][i]=0;map[i][13]=0;}
+    if(arena==='favela')for(let i=1;i<14;i++){map[3][i]=0;map[11][i]=0;}
+    if(arena==='planalto')for(let z=5;z<=9;z++)for(let x=5;x<=9;x++)map[z][x]=0;
+  }
   // Small plazas create room to dodge and lob bombs without losing cover.
   for (const [cx, cz] of [[3, 3], [11, 3], [3, 11], [11, 11]])
     for (let z = cz - 1; z <= cz + 1; z++)
@@ -71,6 +86,7 @@ export function generateMap(random = Math.random) {
         if (map[z][x] === 2) map[z][x] = 0;
   return map;
 }
+const ARENA_PREVIEWS=ARENAS.map(arena=>({...arena,tiles:generateMap(rng(42),arena.id).flat()}));
 export function blastCells(map, x, z, range) {
   x = Math.round(x);
   z = Math.round(z);
@@ -202,7 +218,9 @@ export class Match {
   reset(character = 0, mode = 'caos') {
     this.character = character;
     this.mode = mode;
-    this.map = generateMap(this.random);
+    this.arenaIndex=Math.floor(this.random()*ARENAS.length);
+    this.arena=ARENAS[this.arenaIndex];
+    this.map = generateMap(this.random,this.arena.id);
     this.phase = 'playing';
     this.player = {
       x: 1,
@@ -222,7 +240,7 @@ export class Match {
     this.bombs = [];
     this.heldBomb = null;
     this.pendingRelease = null;
-    this.countdown = 3;
+    this.countdown = 6.2;
     this.winner = -1;
     this.overtime = false;
     this.overtimeClock = 0;
@@ -236,6 +254,7 @@ export class Match {
     this.player.vz = 0;
     this.fires = [];
     this.chairs = [];
+    this.chairReady=false;this.chairThrowTime=0;this.equipTime=0;
     this.decoys = [];
     this.barricades = [];
     this.property = null;
@@ -252,7 +271,7 @@ export class Match {
     this.swordTime = 0; this.swordCooldown = 0; this.swordSwing = 0;
     this.quote = '';
     this.quoteTime = 0;
-    this.notice = 'BEM-VINDO AO CIRCO!';
+    this.notice = this.arena.name.toUpperCase()+' • VALE A FAIXA!';
     this.noticeTime = 3;
     this.combo = 0;
     this.comboTime = 0;
@@ -286,7 +305,8 @@ export class Match {
         walk: 0,
       }),
     );
-    this.invasion = new Invasion(this.random);
+    this.invasion = new Invasion(this.random,this.lastOmittedInvader);
+    this.lastOmittedInvader=this.invasion.omitted;
     this.events.push({ type: 'reset' });
   }
   solid(x, z) {
@@ -340,7 +360,7 @@ export class Match {
   primaryPress() {
     if(this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
     if(this.swordTime>0)return this.swingSword();
-    if(this.character===8&&(this.specialItems>0||this.specialCharge>=1))return this.special();
+    if(this.chairReady)return this.throwChair();
     return this.beginHold();
   }
   swingSword() {
@@ -522,6 +542,7 @@ export class Match {
     this.events.push({ type: 'wind-release', x: p.x, z: p.z, yaw: p.yaw });
   }
   special() {
+    if(this.character===8&&this.chairReady)return this.throwChair();
     if (
       this.invasion.stage === 'arrival' ||
       this.phase !== 'playing' ||
@@ -533,6 +554,7 @@ export class Match {
     const item = this.specialItems>0;
     if(item) this.specialItems--; else this.specialCharge = 0;
     this.quoteTime = 0;
+    this.equipTime=.45;
     this.speak();
     const p = this.player;
     if (this.character === 0) {
@@ -568,8 +590,8 @@ export class Match {
       this.notice = 'MISSÃO: DETONAR!';
     }
     if (this.character === 6) {
-      if(item) {this.swordTime=8;this.swordCooldown=0;this.notice='ESPADA EQUIPADA · MIRE DE PERTO!';}
-      else {this.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };this.notice = 'PROPRIEDADE PRIVADA!';}
+      this.swordTime=8;this.swordCooldown=0;this.notice='LÂMINA EQUIPADA · CLIQUE PARA GOLPEAR!';
+      if(!item)this.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };
     }
     if (this.character === 7) {
       const fx = Math.abs(Math.sin(p.yaw)) > Math.abs(Math.cos(p.yaw)) ? -Math.sign(Math.sin(p.yaw)) : 0,
@@ -588,13 +610,19 @@ export class Match {
       this.notice = 'OCUPAÇÃO DA ARENA!';
     }
     if (this.character === 8) {
-      const speed = 8.5;
-      this.chairs.push({ id: ++this.serial, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * speed, vz: -Math.cos(p.yaw) * speed, time: 2, bounces: 1 });
-      this.notice = 'CADEIRA VOADORA!';
+      this.chairReady=true;
+      this.notice = 'CADEIRA NA MÃO · CLIQUE PARA ARREMESSAR!';
     }
     this.noticeTime = 2.6;
     this.events.push({ type: 'special' });
     return true;
+  }
+  throwChair() {
+    if(!this.chairReady||this.heldBomb||this.countdown>0||this.phase!=='playing'||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
+    const p=this.player,speed=8.5;
+    this.chairReady=false;this.chairThrowTime=.35;
+    this.chairs.push({id:++this.serial,x:p.x,z:p.z,vx:-Math.sin(p.yaw)*speed,vz:-Math.cos(p.yaw)*speed,time:2,bounces:1});
+    this.notice='CADEIRA VOADORA!';this.noticeTime=1.5;this.events.push({type:'chair-throw'});return true;
   }
   explode(b) {
     if (!this.bombs.includes(b)) return;
@@ -695,6 +723,7 @@ export class Match {
     const p = this.player;
     this.elapsed += dt;
     this.swordTime=Math.max(0,this.swordTime-dt);this.swordCooldown-=dt;this.swordSwing=Math.max(0,this.swordSwing-dt);
+    this.equipTime=Math.max(0,this.equipTime-dt);this.chairThrowTime=Math.max(0,this.chairThrowTime-dt);
     if(input.attack&&this.swordTime>0)this.swingSword();
     if([0,6,8].includes(this.character)&&this.elapsed>=this.nextSpecialItem) {
       this.nextSpecialItem=this.elapsed+18+this.random()*12;
@@ -1016,6 +1045,9 @@ export class Match {
       phase: this.phase,
       invasion: this.invasion.snapshot(),
       countdown: this.countdown,
+      arena: this.arena,
+      arenaRoll: arenaRoll(this.countdown,this.arenaIndex),
+      arenaOptions: ARENA_PREVIEWS,
       holding: !!this.heldBomb,
       fuse: this.heldBomb ? Math.max(0, this.heldBomb.fuse) : 0,
       power: this.heldBomb ? Math.min(1, this.heldBomb.heldTime / 0.95) : 0,
@@ -1035,7 +1067,8 @@ export class Match {
           this.bombs.filter((b) => b.owner === 'player').length -
           (this.heldBomb ? 1 : 0),
       ),
-      special: this.specialItems>0?1:this.specialCharge,
+      special: this.chairReady||this.specialItems>0?1:this.specialCharge,
+      chairReady:this.chairReady,
       specialItems: this.specialItems, swordTime: this.swordTime,
       chaos: this.chaos,
       enemies: this.enemies.filter((e) => e.hp > 0).length,

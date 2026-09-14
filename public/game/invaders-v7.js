@@ -1,5 +1,5 @@
 import * as T from '../vendor/three.module.js';
-import { INVASION_INTRO, TRUMP_CHARGE, TRUMP_RADIUS } from './invasion.mjs?v=11';
+import { INVASION_INTRO, TRUMP_CHARGE, TRUMP_RADIUS } from './invasion.mjs?v=14';
 import { createMissileFactory } from './missile-model.js?v=11';
 import { loadCutout } from './cutouts-v7.js';
 
@@ -116,7 +116,7 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     parade.visible = invasion.kind === 'trump' && arrival;
     kim.visible = invasion.kind === 'kim' && (arrival || active); launcher.visible = kim.visible;
     const t = 1 - invasion.intro / INVASION_INTRO;
-    if(['trump','bukele'].includes(invasion.kind)&&game.phase!=='paused') {
+    if(dt>0&&['trump','bukele'].includes(invasion.kind)&&game.phase!=='paused') {
       const a=invasion.actor,kind=invasion.kind,figure=(kind==='trump'?trump:bukele).userData.figure;
       const moving=active&&a.state==='hunting'&&a.walk!==lastWalk;
       if(moving&&walking[kind].map) {

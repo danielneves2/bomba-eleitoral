@@ -1,12 +1,13 @@
 import * as T from '../vendor/three.module.js';
-import { createPixelAssets } from './pixel-assets.js?v=11';
-import { createInvaderView } from './invaders-v7.js?v=12';
+import {createArenaWorlds} from './arena-worlds.js?v=13';
+import { createPixelAssets } from './pixel-assets.js?v=14';
+import { createInvaderView } from './invaders-v7.js?v=14';
 import { createSoundtrack } from './soundtrack.js?v=11';
 import { arrivalCamera } from './cinematic.mjs?v=11';
-import { INVASION_INTRO } from './invasion.mjs?v=11';
+import { INVASION_INTRO } from './invasion.mjs?v=14';
 import { createPickupFactory } from './pickups.js?v=11';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES, advanceFrame } from './core.mjs?v=12';
+import { Match, SIZE, cell, NAMES, advanceFrame, arenaRoll } from './core.mjs?v=14';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -334,6 +335,7 @@ export function createGame(canvas, onState, onError) {
   }
   makeEnvironment();
   batchStatic(staticRoot);
+  const arenaWorlds=createArenaWorlds({scene,box,mesh,material,batchStatic,geometries,label});
   // Detailed full-body voxel sprites share one atlas in the 3D arena.
   // Alpha testing keeps silhouettes crisp and lets bombs remain visible through empty pixels.
   let characterAtlas = null;
@@ -465,6 +467,13 @@ export function createGame(canvas, onState, onError) {
     map.clear();
   }
   function rebuild() {
+    const kind=game.arena.id;
+    staticRoot.visible=kind==='circo';
+    for(const [id,root] of Object.entries(arenaWorlds))root.visible=id===kind;
+    const theme=kind==='favela'?{sky:0xdba475,fog:0xdba475,wall:0xb96643,trim:0xb19a79,green:0x528e86}:kind==='planalto'?{sky:0x89bfd6,fog:0xabcbd8,wall:0xd1d8cc,trim:0xf3ebd4,green:0x619877}:{sky:0x101c30,fog:0x18283a,wall:0x345470,trim:0x77929e,green:0x3b7656};
+    scene.background.setHex(theme.sky);scene.fog.color.setHex(theme.fog);
+    mats.wall.color.setHex(theme.wall);mats.trim.color.setHex(theme.trim);mats.green.color.setHex(theme.green);
+    sun.color.setHex(kind==='favela'?0xffce9a:kind==='planalto'?0xf1faff:0xffdfad);
     for (const maps of [bodies, bombs, flames, drops, warnings, crates, chairs, decoyBodies, barricadeBodies])
       clearMap(maps);
     while(crateBatch.children.length)releaseObject(crateBatch.children[0]);
@@ -623,6 +632,11 @@ export function createGame(canvas, onState, onError) {
   const equippedChair=pixelAsset('chair',.72);equippedChair.position.set(.32,-.13,-.82);hand.add(equippedChair);
   const steakShield=new T.Group();camera.add(steakShield);
   const largeSteak=pixelAsset('steak',.68);largeSteak.position.set(-.32,-.17,-.82);largeSteak.rotation.z=-.18;steakShield.add(largeSteak);
+  for(const sprite of [equippedSword,equippedChair,largeSteak]) {
+    sprite.material=sprite.material.clone();materials.push(sprite.material);
+    sprite.material.depthTest=false;sprite.material.depthWrite=false;sprite.renderOrder=100;
+  }
+  largeSteak.scale.setScalar(.85);equippedSword.scale.setScalar(.7);equippedChair.scale.setScalar(.86);
   camera.add(hand);
   box(hand, 0.24, 0.35, 0.31, 0.34, -0.4, -0.55, mats.skin);
   box(hand, 0.28, 0.46, 0.34, 0.39, -0.67, -0.48, mats.dark);
@@ -657,6 +671,7 @@ export function createGame(canvas, onState, onError) {
     master = null,
     soundtrack = null,
     lastCountdown = -1;
+  let lastArenaTick=-1,lastArenaLocked=false;
   function initAudio() {
     if (!audio) {
       const A = window.AudioContext || window.webkitAudioContext;
@@ -847,8 +862,12 @@ export function createGame(canvas, onState, onError) {
         tone(880, 0.15, 'square', 0.13, 0.17);
       }
       if (e.type === 'special') {
-        tone(180, 0.6, 'sawtooth', 0.12, 0, 900);
+        if(game.character===0){tone(330,.3,'triangle',.2,0,660);tone(880,.2,'sine',.16,.1);}
+        else if(game.character===6){noise(.12,.1);tone(1500,.2,'triangle',.18,0,650);}
+        else if(game.character===8){tone(230,.14,'square',.17);tone(460,.1,'triangle',.14,.08);}
+        else tone(180, 0.6, 'sawtooth', 0.12, 0, 900);
       }
+      if(e.type==='chair-throw'){kick=.2;noise(.18,.12);tone(280,.22,'triangle',.18,0,90);}
       if (e.type === 'voice') speak(e.text);
       if (e.type === 'storm') {
         tone(220, 0.35, 'square', 0.1);
@@ -1125,7 +1144,7 @@ export function createGame(canvas, onState, onError) {
     keys[e.code] = true;
     if (e.repeat) return;
     if (e.code === 'Space') game.throwBomb(true);
-    if (e.code === 'KeyE') game.special();
+    if (e.code === 'KeyE' && !e.repeat) game.special();
     if (e.code === 'KeyQ' && game.phase === 'playing') game.speak();
   });
   bind(document, 'keyup', (e) => {
@@ -1197,11 +1216,13 @@ export function createGame(canvas, onState, onError) {
   const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures,onError});
   function loop(now) {
     steakShield.visible=game.player.picanhaTime>0&&game.phase==='playing'&&game.invasion.stage!=='arrival';
-    largeSteak.position.y=-.17+(reduced?0:Math.sin(clock*2)*.006);largeSteak.position.z=-.82+game.shieldFlash*.12;
+    const equipLift=reduced?0:game.equipTime/.45;
+    largeSteak.position.y=-.12-equipLift*.28+(reduced?0:Math.sin(clock*2)*.006);largeSteak.position.z=-.82+game.shieldFlash*.12;
     equippedSword.visible=game.swordTime>0&&!game.heldBomb;
     const slash=reduced?0:Math.sin(Math.max(0,game.swordSwing)/.2*Math.PI);
-    equippedSword.rotation.z=-slash*.9;equippedSword.position.set(.33-slash*.18,-.22+slash*.12,-.68-slash*.2);
-    equippedChair.visible=game.character===8&&(game.specialItems>0||game.specialCharge>=1)&&!game.heldBomb;
+    equippedSword.rotation.z=-slash*.9;equippedSword.position.set(.29-slash*.18,-.16+slash*.12-equipLift*.32,-.68-slash*.2);
+    equippedChair.visible=game.chairReady&&!game.heldBomb;
+    equippedChair.position.set(.3,-.08-equipLift*.36,-.82);equippedChair.rotation.z=-equipLift*.3;
     if (dead) return;
     const elapsedFrame = Math.min((now - last) / 1000, 0.25);
     const dt = Math.min(elapsedFrame, 0.05);
@@ -1256,7 +1277,9 @@ export function createGame(canvas, onState, onError) {
         }
       }
       invaderView.sync(camera,dt);
-      if(game.countdown>0 && !reduced) {
+      if(game.countdown>3) {
+        camera.position.set(center+24,27,center+29);camera.lookAt(center,0,center);hand.visible=false;
+      } else if(game.countdown>0 && !reduced) {
         const t=1-game.countdown/3,ease=t*t*(3-2*t);
         camera.position.set(p.x*TILE+(1-ease)*8,1.8+(1-ease)*10,p.z*TILE+(1-ease)*8);
         camera.lookAt(p.x*TILE-Math.sin(p.yaw)*5,1.8,p.z*TILE-Math.cos(p.yaw)*5);
@@ -1301,8 +1324,15 @@ export function createGame(canvas, onState, onError) {
     invaderView.sync(camera);
     soundtrack?.update(game,muted);
     if(game.phase==='playing') {
-      const count=Math.ceil(game.countdown);
-      if(count!==lastCountdown){lastCountdown=count;tone(count?440:880,count ? .12 : .35,'triangle',.25);}
+      if(game.countdown>3) {
+        const roll=arenaRoll(game.countdown,game.arenaIndex);
+        if(roll.index!==lastArenaTick){lastArenaTick=roll.index;tone(500+roll.index*160,.055,'square',.09);}
+        if(roll.locked&&!lastArenaLocked){lastArenaLocked=true;[523,659,784].forEach((n,i)=>tone(n,.18,'triangle',.16,i*.1));}
+      }
+      if(game.countdown<=3) {
+        const count=Math.ceil(game.countdown);
+        if(count!==lastCountdown){lastCountdown=count;tone(count?440:880,count ? .12 : .35,'triangle',.25);}
+      }
     }
     updateAim(dt);
     hudClock += dt;
@@ -1325,12 +1355,12 @@ export function createGame(canvas, onState, onError) {
       kick = 0;
       shake = 0;
       initAudio();
-      soundtrack?.reset();lastCountdown=-1;
+      soundtrack?.reset();lastCountdown=-1;lastArenaTick=-1;lastArenaLocked=false;
       lock();
       emit();
       setTimeout(() => {
         if (!dead && game.phase === 'playing') game.speak();
-      }, 3200);
+      }, 6500);
     },
     pause,
     resume,

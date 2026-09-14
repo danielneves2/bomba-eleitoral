@@ -1362,6 +1362,28 @@ kbd {
 .portrait-8 {
   background-position: 50% 100%;
 }
+.arena-roulette{position:fixed;inset:0;z-index:85;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(140deg,#080e20f5,#121023ef);padding:28px;color:#fff4d9;text-align:center;overflow:auto}
+.arena-eyebrow{font:14px monospace;letter-spacing:.3em;color:#d5ff46}
+.arena-roulette h2{font-size:clamp(24px,4.5vw,58px);line-height:1.05;margin:16px 0 30px;letter-spacing:-.04em}
+.arena-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;width:min(900px,100%)}
+.arena-card{position:relative;border:2px solid #41526b;background:#142137;padding:20px 18px 0;opacity:.5;transform:scale(.96);transition:transform .1s,border-color .1s,opacity .1s}
+.arena-card.arena-current{opacity:1;border-color:var(--arena-color);transform:translateY(-6px);box-shadow:0 0 28px color-mix(in srgb,var(--arena-color) 22%,transparent)}
+.arena-number{position:absolute;left:12px;top:8px;color:var(--arena-color);font:12px monospace}
+.arena-layout{display:grid;grid-template-columns:repeat(15,1fr);aspect-ratio:1;gap:2px;margin:15px auto 18px;width:min(180px,100%);padding:8px;background:#070f1c;transform:rotate(-6deg)}
+.arena-tile{aspect-ratio:1;background:#203549}.arena-tile.tile-1{background:var(--arena-color)}.arena-tile.tile-2{background:#aa7442}
+.arena-card strong{display:block;font-size:clamp(16px,2.2vw,26px);min-height:2.4em;line-height:1.1}.arena-card small{display:block;font-size:14px;color:#b9c6d9;min-height:3em;margin:8px 0 14px}.arena-card b{display:block;background:#091321;padding:10px 0;margin:0 -18px;font:12px monospace;letter-spacing:.06em;color:var(--arena-color)}
+.arena-locked .arena-current{box-shadow:0 0 0 4px #fff1,0 0 40px #ddff4630;transform:translateY(-6px) scale(1.025)}
+.arena-roulette p{font-size:16px;min-height:1.3em;margin:24px 0 14px}.arena-roll-track{height:4px;background:#394053;width:min(460px,70%);overflow:hidden}.arena-roll-track i{display:block;height:100%;background:#d5ff46;transform-origin:left}
+@media(max-width:600px){.arena-roulette{padding:16px 8px}.arena-cards{gap:5px}.arena-card{padding:18px 6px 0}.arena-layout{gap:1px;padding:4px;transform:none}.arena-card small{display:none}.arena-card strong{font-size:14px;min-height:3em}.arena-card b{font-size:9px;letter-spacing:0;margin:0 -6px}.arena-roulette h2{margin-bottom:22px}.arena-card.arena-current{transform:translateY(-4px)}}
+@media(prefers-reduced-motion:reduce){.arena-card,.arena-card.arena-current,.arena-locked .arena-current{transition:none;transform:none}.arena-layout{transform:none}}
+.invader-draft{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;width:min(900px,100%);margin-top:20px}
+.draft-slot{display:flex;align-items:center;gap:12px;padding:8px 12px;text-align:left;background:#090f20;border:1px solid #4c5570;min-width:0}
+.draft-slot.draft-locked{border-color:#ff855a;background:#251c28}.draft-slot .invader-portrait{width:64px;height:72px}
+.draft-slot small,.draft-slot strong,.draft-slot span{display:block}.draft-slot small{font:12px monospace;color:#ffb887}.draft-slot strong{font-size:20px;line-height:1.2;margin:4px 0}.draft-slot span{font-size:13px;color:#bcc9dc}
+.equipment-status{position:fixed;bottom:165px;left:50%;transform:translateX(-50%);z-index:33;display:flex;align-items:center;gap:12px;max-width:90vw;padding:8px 16px;background:#08162aee;border:2px solid #d5ff46;pointer-events:none;text-align:left}
+.equipment-status img{object-fit:contain;image-rendering:pixelated}.equipment-status strong,.equipment-status span{display:block}.equipment-status strong{font-size:18px;color:#e3ff8e}.equipment-status span{font:13px monospace;color:#fff7dc;margin-top:4px}.equipment-shield{border-color:#ffb854}.equipment-shield strong{color:#ffca76}
+@media(max-height:780px){.arena-roulette{padding:14px}.arena-roulette h2{margin:10px 0 16px;font-size:32px}.arena-layout{width:112px;margin:8px auto}.arena-card small{display:none}.arena-card strong{font-size:20px;min-height:2em}.invader-draft{margin-top:12px}.arena-roulette p{margin:14px 0 10px}}
+@media(max-width:600px){.invader-draft{gap:5px}.draft-slot{padding:6px 2px;gap:2px;flex-direction:column;text-align:center}.draft-slot .invader-portrait{width:50px;height:54px}.draft-slot strong{font-size:15px}.draft-slot span{font-size:12px}.arena-roulette p{font-size:14px}.equipment-status{bottom:210px;width:max-content;padding:6px 10px}.equipment-status strong{font-size:15px}.equipment-status span{font-size:12px}.equipment-status img{width:40px;height:40px}}
 .round-countdown {
   position: fixed;
   z-index: 9;

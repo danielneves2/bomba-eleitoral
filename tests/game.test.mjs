@@ -12,6 +12,8 @@ import {
   advanceProjectile,
   NAMES,
   advanceFrame,
+  ARENAS,
+  arenaRoll,
 } from '../public/game/core.mjs';
 const names = [];
 const test = (name, fn) => {
@@ -54,6 +56,55 @@ test('safe spawns and solid perimeter, 100 seeds', () => {
     assert.ok(map[14].every((c) => c === 1));
   }
 });
+test('all arenas have connected destructible routes and safe spawn exits, 100 seeds', () => {
+  for(const arena of ARENAS)for(let seed=0;seed<100;seed++) {
+    const map=generateMap(rng(seed),arena.id),seen=new Set(['1,1']),queue=[[1,1]];
+    assert.ok(map[0].every(v=>v===1)&&map[14].every(v=>v===1));
+    assert.ok(map.every(row=>row[0]===1&&row[14]===1));
+    for(let i=0;i<queue.length;i++) {
+      const [x,z]=queue[i];
+      for(const [a,b] of [[x+1,z],[x-1,z],[x,z+1],[x,z-1]])if(map[b]?.[a]!==undefined&&map[b][a]!==1&&!seen.has(`${a},${b}`)) {
+        seen.add(`${a},${b}`);queue.push([a,b]);
+      }
+    }
+    assert.equal(seen.size,map.flat().filter(v=>v!==1).length,`${arena.id} seed ${seed} has isolated cells`);
+    for(const [x,z] of [[1,1],[13,13],[1,13],[13,1],[7,7],[13,7],[7,13],[7,1],[1,7]]) {
+      assert.equal(map[z][x],0);
+      assert.ok([[x+1,z],[x-1,z],[x,z+1],[x,z-1]].filter(([a,b])=>map[b]?.[a]===0).length>=2);
+    }
+  }
+  assert.equal(new Set(ARENAS.map(a=>JSON.stringify(generateMap(rng(42),a.id)))).size,3);
+});
+
+test('arena draw reaches all three maps and stays fixed throughout the reveal',()=>{
+  const counts=[0,0,0];
+  for(let seed=0;seed<600;seed++) {
+    const g=new Match(seed);g.reset();counts[g.arenaIndex]++;
+    const picked=g.arena.id;
+    for(let n=0;n<124;n++){g.tick(.05);assert.equal(g.arena.id,picked);}
+    assert.equal(g.snapshot().arenaRoll.index,g.arenaIndex);
+  }
+  assert.ok(counts.every(n=>n>150&&n<250),counts.join(','));
+  for(let selected=0;selected<3;selected++) {
+    const visits=new Set();
+    for(let time=6.2;time>3.8;time-=.025)visits.add(arenaRoll(time,selected).index);
+    assert.equal(visits.size,3);
+    for(const time of [3.7,3.2,3.01,0])assert.deepEqual(arenaRoll(time,selected),{index:selected,locked:true});
+  }
+});
+
+test('roulette and countdown freeze participants, match clock, invaders and pause',()=>{
+  const g=new Match(15);g.reset();const x=g.player.x,z=g.player.z;
+  const invasion=JSON.stringify(g.invasion.snapshot());
+  const enemies=g.enemies.map(e=>[e.x,e.z]);
+  for(let i=0;i<110;i++){g.primaryPress();g.special();g.tick(.05,{forward:1,attack:true});}
+  assert.equal(g.player.x,x);assert.equal(g.player.z,z);assert.equal(g.elapsed,0);
+  assert.equal(JSON.stringify(g.invasion.snapshot()),invasion);assert.equal(g.bombs.length,0);assert.equal(g.heldBomb,null);
+  assert.deepEqual(g.enemies.map(e=>[e.x,e.z]),enemies);
+  const countdown=g.countdown;g.phase='paused';g.tick(.05);assert.equal(g.countdown,countdown);
+  g.phase='playing';for(let i=0;i<20;i++)g.tick(.05);assert.ok(g.elapsed>0);
+});
+
 test('blast stops at walls and first crate', () => {
   const g = clean();
   g.map[5][6] = 1;
@@ -120,7 +171,7 @@ test('all nine specials create a distinct gameplay state and recharge', () => {
     g.player.x = 7;
     g.player.z = 7;
     assert.equal(g.special(), true);
-    assert.equal(g.special(), false);
+    assert.equal(g.special(), c===8);
     const active = [
       g.player.picanha,
       g.player.ram,
@@ -179,7 +230,7 @@ test('Boulos occupation never creates a barricade over the player collider', () 
 });
 test('Datena chair flies forward, hits once and stuns the target', () => {
   const g=clean();g.character=8;g.player.x=5;g.player.z=5;g.player.yaw=-Math.PI/2;g.enemies[0].x=7;g.enemies[0].z=5;const hp=g.enemies[0].hp;
-  g.special();for(let i=0;i<8;i++)g.tick(.05);
+  g.special();assert.equal(g.chairReady,true);assert.equal(g.chairs.length,0);g.primaryPress();for(let i=0;i<8;i++)g.tick(.05);
   assert.equal(g.enemies[0].hp,hp-1);assert.ok(g.enemies[0].invulnerable>1);assert.equal(g.chairs.length,0);
 });
 test('pause freezes all timers and movement', () => {
@@ -490,13 +541,15 @@ test('missile impact hits diagonally, preserves shields and does not leave cross
     assert.equal(g.player.hp,shield?3:2);assert.equal(g.map[6][6],0);assert.equal(g.fires.length,0);
   }
 });
-test('second invasion waits for late game, picks a different invader, resets state and cannot repeat a third time', () => {
-  const g=clean(),first=g.invasion.kind;assert.ok(g.invasion.returnAt>=90&&g.invasion.returnAt<115);
-  g.invasion.stage='done';g.invasion.actor.state='spent';g.invasion.shots=3;
-  g.elapsed=g.invasion.returnAt-.1;g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'done');
-  g.elapsed=g.invasion.returnAt;g.invasion.tick(g,.05);
-  assert.equal(g.invasion.stage,'warning');assert.equal(g.invasion.wave,2);assert.notEqual(g.invasion.kind,first);
-  assert.equal(g.invasion.warning,7);assert.equal(g.invasion.shots,0);assert.equal(g.invasion.actor.state,'hunting');
+test('three distinct drafted invasions arrive in order without a fourth wave', () => {
+  const g=clean(),draft=g.invasion.lineup.slice();assert.equal(new Set(draft).size,3);
+  for(let wave=1;wave<3;wave++) {
+    g.invasion.stage='done';g.invasion.actor.state='spent';g.invasion.shots=3;
+    g.elapsed=g.invasion.schedule[wave]-.1;g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'done');
+    g.elapsed=g.invasion.schedule[wave];g.invasion.tick(g,.05);
+    assert.equal(g.invasion.stage,'warning');assert.equal(g.invasion.wave,wave+1);assert.equal(g.invasion.kind,draft[wave]);
+    assert.equal(g.invasion.warning,7);assert.equal(g.invasion.shots,0);assert.equal(g.invasion.actor.state,'hunting');
+  }
   g.invasion.stage='done';g.elapsed=999;g.invasion.tick(g,.05);assert.equal(g.invasion.stage,'done');
   g.reset();assert.equal(g.invasion.wave,1);
 });
@@ -543,7 +596,7 @@ test('personal pickups store two uses, activate without recharge and preserve ex
     g.items=[1,2,3].map(id=>({id,x:1,z:1,type,wait:0}));g.tick(.05);
     assert.equal(g.specialItems,2);assert.equal(g.items.length,1);assert.equal(g.special(),true);assert.equal(g.specialItems,1);
     if(character===0)assert.equal(g.player.picanhaTime,4);
-    if(character===8)assert.equal(g.chairs.length,1);
+    if(character===8)assert.equal(g.chairReady,true);
     if(character===6)assert.equal(g.swordTime,8);
   }
 });
@@ -564,7 +617,25 @@ test('equipped melee and chair use primary click; space still plants bombs',()=>
   const g=clean();g.character=6;g.specialItems=1;g.special();
   assert.equal(g.primaryPress(),true);assert.equal(g.heldBomb,null);assert.equal(g.swordSwing,.2);assert.equal(g.primaryPress(),false);
   g.throwBomb(true);assert.equal(g.bombs.length,1);assert.equal(g.bombs[0].moving,false);
-  const d=clean();d.character=8;assert.equal(d.primaryPress(),true);assert.equal(d.chairs.length,1);assert.equal(d.heldBomb,null);
+  const d=clean();d.character=8;d.special();assert.equal(d.primaryPress(),true);assert.equal(d.chairs.length,1);assert.equal(d.heldBomb,null);
   const p=clean();p.character=6;p.specialItems=1;p.special();p.phase='paused';assert.equal(p.primaryPress(),false);assert.equal(p.swordSwing,0);
+});
+test('no invader including Bukele is omitted from two consecutive drafts',()=>{
+  const g=new Match(81);let previous=[];
+  for(let i=0;i<200;i++) {
+    g.reset();const lineup=g.snapshot().invasion.lineup;
+    assert.equal(lineup.length,3);assert.equal(new Set(lineup).size,3);
+    if(i)assert.equal(new Set([...previous,...lineup]).size,4);
+    previous=lineup.slice();
+  }
+});
+test('E equips a visible state for all three personal weapons without requiring a pickup',()=>{
+  for(const character of [0,6,8]) {
+    const g=clean();g.character=character;assert.equal(g.special(),true);assert.ok(g.equipTime>0);
+    const s=g.snapshot();
+    if(character===0)assert.equal(s.picanhaTime,4);
+    if(character===6){assert.equal(s.swordTime,8);assert.ok(g.property);}
+    if(character===8){assert.equal(s.chairReady,true);assert.equal(g.chairs.length,0);g.phase='paused';assert.equal(g.special(),false);assert.equal(g.chairReady,true);g.phase='playing';assert.equal(g.special(),true);assert.equal(g.chairReady,false);assert.equal(g.chairs.length,1);assert.equal(g.special(),false);}
+  }
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

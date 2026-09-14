@@ -85,8 +85,8 @@ const cast = [
     title: 'O cavaleiro',
     color: '#eded9d',
     quote: 'Imposto é roubo',
-    special: 'Propriedade privada',
-    desc: 'Protege sua área. Encontre a espada: golpes rápidos de 2 corações por 8 segundos.',
+    special: 'Lâmina do Kogos',
+    desc: 'E equipa a lâmina por 8 segundos. Clique para golpes rápidos de 2 corações.',
     source:
       'https://mises.org.br/artigos/1563/impostoerouboestadoequadrilhaeoutrasconsideracoes/',
   },
@@ -106,15 +106,21 @@ const cast = [
     color: '#91b9e5',
     quote: 'Me ajuda aí!',
     special: 'Cadeira voadora',
-    desc: 'Arremessa uma cadeira que rebate e atordoa.',
+    desc: 'E levanta a cadeira. Mire e clique para arremessar, rebater e atordoar.',
     source:
       'https://tvefamosos.uol.com.br/colunas/flavio-ricco/2015/02/18/me-ajuda-ai---record-tambem-registrou-em-nome-dela-bordao-usado-pelo-datena.htm',
   },
 ];
+const invaderNames:Record<string,string>={putin:'Putin',trump:'Trump',kim:'Kim Jong-un',bukele:'Bukele'};
+const invaderPowers:Record<string,string>={putin:'Ataque aéreo',trump:'Explosão ambulante',kim:'Mísseis',bukele:'Gaiola por 6s'};
+const invaderIds=['putin','trump','kim','bukele'];
 const initial = {
-  invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:14,duration:14,intro:0,targeted:false,shots:0,wave:1,charging:false,charge:0,caged:0 },
+  invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:14,duration:14,intro:0,targeted:false,shots:0,wave:1,charging:false,charge:0,caged:0,lineup:[] as string[],schedule:[] as number[] },
   phase: 'menu',
   countdown: 0,
+  arena: {id:'circo',name:'Circo do Caos',subtitle:'',color:'#d5ff46'},
+  arenaRoll: {index:0,locked:false},
+  arenaOptions: [] as Array<{id:string;name:string;subtitle:string;color:string;tiles:number[]}>,
   holding: false,
   fuse: 0,
   power: 0,
@@ -140,6 +146,7 @@ const initial = {
   picanha: 0,
   specialItems: 0,
   swordTime: 0,
+  chairReady:false,
   picanhaTime: 0,
   windTime: 0,
   vampireTime: 0,
@@ -188,7 +195,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=12';
+    script.src = '/game/boot.js?v=14';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -260,7 +267,7 @@ export default function Home() {
         </Link>
         <div className="top-actions">
           <span className="live-dot" />
-          <span className="top-label">CIRCO DO CAOS</span>
+          <span className="top-label">{menu?'SORTEIO DE ARENAS':state.arena.name.toUpperCase()}</span>
           <button
             className="icon-button"
             onClick={() => {
@@ -386,17 +393,17 @@ export default function Home() {
           <aside className="arena-label">
             <div className="lobby-champion" aria-hidden="true"><div className={`portrait portrait-${selected}`} /></div>
             <div className="arena-tag">
-              <span /> ARENA 01
+              <span /> 03 ARENAS · SORTEIO A CADA PARTIDA
             </div>
             <h2>
-              CIRCO
+              ONDE VAI
               <br />
-              DO CAOS
+              SER O CAOS?
             </h2>
             <p>
-              Promessas voam.
+              Favela. Planalto. Circo.
               <br />
-              Bombas também.
+              A roleta escolhe o próximo destino.
             </p>
             <div className="arena-rule" />
             <span className="arena-features">
@@ -424,7 +431,7 @@ export default function Home() {
             <aside className={`invasion-alert invasion-${state.invasion.stage}`} aria-label={`Invasão de ${state.invasion.kind === 'putin' ? 'Putin' : state.invasion.kind === 'kim' ? 'Kim Jong-un' : state.invasion.kind === 'bukele' ? 'Bukele' : 'Trump'}`}>
               <div className={`invader-portrait invader-${state.invasion.kind}`} />
               <div className="invasion-copy">
-                <span>{state.invasion.stage === 'warning' ? state.invasion.wave > 1 ? '⚠ ELES VOLTARAM · SEGUNDA INVASÃO' : '⚠ INVASÃO DETECTADA' : state.invasion.stage === 'arrival' ? 'CHEGADA DO CONVIDADO' : 'INVASOR NA ARENA'}</span>
+                <span>{state.invasion.stage === 'warning' ? `⚠ INVASÃO ${state.invasion.wave} DE 3` : state.invasion.stage === 'arrival' ? 'CHEGADA DO CONVIDADO' : `INVASOR ${state.invasion.wave} DE 3 NA ARENA`}</span>
                 <strong>{state.invasion.kind === 'putin' ? 'PUTIN' : state.invasion.kind === 'kim' ? 'KIM JONG-UN' : state.invasion.kind === 'bukele' ? 'BUKELE' : 'TRUMP'} <b>{Math.ceil(state.invasion.stage === 'warning' ? state.invasion.warning : state.invasion.stage === 'arrival' ? state.invasion.intro : state.invasion.remaining)}s</b></strong>
                 <small>{state.invasion.stage === 'warning' ? 'Prepare-se. O circo ganhou um convidado.' : state.invasion.kind === 'putin' ? 'Duas bombas · saia dos círculos vermelhos!' : state.invasion.kind === 'kim' ? 'Mísseis no ar · impacto circular nas marcas laranja!' : state.invasion.kind === 'bukele' ? 'Não deixe alcançar você: gaiola por 6 segundos!' : state.invasion.charging ? 'PAROU E FICOU VERMELHO? CORRA!' : 'Ele está procurando alguém. Não deixe chegar perto!'}</small>
                 <Progress className="invasion-progress" aria-label={state.invasion.stage === 'warning' ? 'Chegada do invasor' : 'Tempo restante da invasão'} value={state.invasion.stage === 'warning' ? (1-state.invasion.warning/7)*100 : state.invasion.remaining/state.invasion.duration*100} />
@@ -531,9 +538,9 @@ export default function Home() {
             >
               <Zap />
               <span>
-                {state.specialItems>0 ? (selected===0?'Picanha coletada':selected===6?'Equipar espada':'Lançar cadeira') : ch.special}
+                {state.chairReady?'Arremessar cadeira':state.specialItems>0 ? (selected===0?'Picanha coletada':selected===6?'Equipar lâmina':'Equipar cadeira') : ch.special}
                 <small>
-                  {state.specialItems>0 ? `${state.specialItems} ITEM${state.specialItems>1?'S':''} · E PARA USAR` : state.special >= 1
+                  {state.chairReady?'MIRE · CLIQUE OU E PARA LANÇAR':state.specialItems>0 ? `${state.specialItems} ITEM${state.specialItems>1?'S':''} · E PARA USAR` : state.special >= 1
                     ? 'ESPECIAL PRONTO'
                     : `CARREGANDO ${Math.floor(state.special * 100)}%`}
                 </small>
@@ -577,20 +584,53 @@ export default function Home() {
               }}
               onPointerUp={() => api.current?.releaseBomb()}
               onPointerCancel={() => api.current?.releaseBomb()}
-              aria-label={state.swordTime>0?'Segurar para golpear com a lâmina':selected===8&&state.special>=1?'Arremessar cadeira':'Segurar para mirar e soltar para arremessar bomba'}
+              aria-label={state.swordTime>0?'Segurar para golpear com a lâmina':state.chairReady?'Arremessar cadeira':'Segurar para mirar e soltar para arremessar bomba'}
             >
-              {state.swordTime>0?<img src="/item-sword-pixel-v11.png" width="32" height="32" alt=""/>:selected===8&&state.special>=1?<img src="/item-chair-pixel-v11.png" width="32" height="32" alt=""/>:<Bomb />}
+              {state.swordTime>0?<img src="/item-sword-pixel-v11.png" width="32" height="32" alt=""/>:state.chairReady?<img src="/item-chair-pixel-v11.png" width="32" height="32" alt=""/>:<Bomb />}
             </button>
           </div>
         </>
       )}
-      {!menu && state.countdown > 0 && (
+      {!menu && state.countdown > 3 && state.phase!=='paused' && (
+        <section className={`arena-roulette ${state.arenaRoll.locked?'arena-locked':''}`} aria-label="Sorteio de arena">
+          <span className="arena-eyebrow">PRÓXIMO DESTINO</span>
+          <h2>{state.arenaRoll.locked?'ARENA SELECIONADA':'ONDE VAI SER O CAOS?'}</h2>
+          <div className="arena-cards">
+            {state.arenaOptions.map((arena,index)=><article key={arena.id} className={`arena-card ${state.arenaRoll.index===index?'arena-current':''}`} style={{'--arena-color':arena.color} as React.CSSProperties}>
+              <span className="arena-number">0{index+1}</span>
+              <div className="arena-layout" aria-hidden="true">{arena.tiles.map((tile,i)=><i key={i} className={`arena-tile tile-${tile}`}/>)}</div>
+              <strong>{arena.name}</strong><small>{arena.subtitle}</small>
+              <b>{state.arenaRoll.index===index?(state.arenaRoll.locked?'SELECIONADA':'◀ SORTEANDO ▶'):'AGUARDANDO'}</b>
+            </article>)}
+          </div>
+          <div className="invader-draft" aria-label="Três invasores sorteados em ordem de chegada">
+            {state.invasion.lineup.map((kind,slot)=>{
+              const locked=6.2-state.countdown>=.8+slot*.7;
+              const shown=locked?kind:invaderIds[(Math.floor((6.2-state.countdown)*14)+slot)%4];
+              return <div key={slot} className={`draft-slot ${locked?'draft-locked':''}`}>
+                <div className={`invader-portrait invader-${shown}`} aria-hidden="true"/>
+                <div><small>{slot+1}ª INVASÃO</small><strong>{invaderNames[shown]}</strong><span>{locked?invaderPowers[kind]:'Sorteando…'}</span></div>
+              </div>;
+            })}
+          </div>
+          <p role="status" aria-live="polite">{state.arenaRoll.locked?`${state.arena.name} · ${state.invasion.lineup.map(k=>invaderNames[k]).join(' → ')}`:'Uma arena. Três invasores. Sobreviva ao sorteio.'}</p>
+          <div className="arena-roll-track"><i style={{transform:`scaleX(${Math.min(1,(6.2-state.countdown)/3.2)})`}}/></div>
+        </section>
+      )}
+      {!menu && state.countdown > 0 && state.countdown <= 3 && (
         <div className="round-countdown">
           <div className={`portrait countdown-portrait portrait-${selected}`} />
-          <small>{Math.ceil(state.countdown)===3 ? 'ENTRANDO NA ARENA' : Math.ceil(state.countdown)===2 ? 'PREPARE O PAVIO' : 'VALE A FAIXA!'}</small>
+          <small>{Math.ceil(state.countdown)===3 ? state.arena.name.toUpperCase() : Math.ceil(state.countdown)===2 ? 'PREPARE O PAVIO' : 'VALE A FAIXA!'}</small>
           <strong key={Math.ceil(state.countdown)}>{Math.ceil(state.countdown)}</strong>
           <span>{ch.name} · {ch.special}</span>
           <div className="countdown-track"><i style={{transform:`scaleX(${1-state.countdown/3})`}} /></div>
+        </div>
+      )}
+      {playing && state.countdown===0 && state.invasion.stage!=='arrival' && (state.picanhaTime>0||state.swordTime>0||state.chairReady) && (
+        <div className={`equipment-status ${state.picanhaTime>0?'equipment-shield':''}`} role="status">
+          <img src={state.picanhaTime>0?'/item-steak-pixel-v11.png':state.swordTime>0?'/item-sword-pixel-v11.png':'/item-chair-pixel-v11.png'} alt="" width="56" height="56"/>
+          <div><strong>{state.picanhaTime>0?'ESCUDO DE PICANHA':state.swordTime>0?'LÂMINA EQUIPADA':'CADEIRA NA MÃO'}</strong>
+          <span>{state.picanhaTime>0?`INVULNERÁVEL · ${state.picanhaTime.toFixed(1)}s`:state.swordTime>0?`CLIQUE PARA GOLPEAR · ${state.swordTime.toFixed(1)}s`:'MIRE E CLIQUE PARA ARREMESSAR'}</span></div>
         </div>
       )}
       {playing && state.holding && (

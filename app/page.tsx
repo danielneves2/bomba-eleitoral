@@ -266,10 +266,7 @@ export default function Home() {
       <div className="vignette" />
       <header className="topbar">
         <Link href="/" className="brand" aria-label="Bomba Eleitoral início">
-          <Bomb size={26} />
-          <span>
-            BOMBA<span className="brand-small">ELEITORAL</span>
-          </span>
+          <span className="nav-logo">{logo&&<img src={logo} alt="Bomba Eleitoral" width="2043" height="770"/>}</span>
           <small>ARCADE / 3D</small>
         </Link>
         <div className="top-actions">
@@ -305,7 +302,7 @@ export default function Home() {
       </header>
       {menu&&!entered&&<section className="title-screen" aria-label="Abertura do jogo">
         <div className="title-sparks" aria-hidden="true">{Array.from({length:18},(_,i)=><i key={i} style={{'--i':i} as React.CSSProperties}/>)}</div>
-        <div className="title-cast" aria-hidden="true">{[1,2,0,4,6,8].map((skin,i)=><div key={skin} className={`portrait portrait-${skin}`} style={{'--i':i} as React.CSSProperties}/>)}</div>
+        <div className="title-cast" aria-hidden="true">{[[2,0],[1,4]].map((duo,side)=><div key={side} className={`title-duo title-duo-${side===0?'left':'right'}`}>{duo.map((skin,i)=><div key={skin} className={`portrait portrait-${skin}`} style={{'--i':side*2+i} as React.CSSProperties}/>)}</div>)}</div>
         <div className="title-center">
           <span className="cartridge-label">BRASIL · ARCADE · 2026</span>
           <h1 className="title-logo">{logo?<img src={logo} alt="Bomba Eleitoral" width="2043" height="770"/>:<span>BOMBA<br/>ELEITORAL</span>}</h1>

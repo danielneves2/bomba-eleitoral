@@ -29,8 +29,21 @@ export function createSoundtrack(ctx, destination) {
       bus.gain.setTargetAtTime(enabled?(duck ? .12 : calm ? .3 : .48):0,ctx.currentTime,.08);
       if(!enabled){next=ctx.currentTime+.04;return;}
       if(next<ctx.currentTime-.1)next=ctx.currentTime+.015;
-      const interval=60/(calm?112:136)/4;
+      const interval=60/(calm?118:136)/4;
       while(next<ctx.currentTime+.12){
+        if(calm){
+          // Major-key cartridge theme: pulse lead, offbeat bass and soft drums.
+          const phrase=[0,4,7,12,7,4,2,7,9,7,4,2,0,4,7,2],bar=Math.floor(step/16)%4;
+          const base=[130.81,110,87.31,98][bar],beat=step%16;
+          if(beat%4===0)note(base,next,.22,.22,'triangle');
+          if(beat%4===2)note(base*1.5,next,.12,.12,'triangle');
+          if(beat%2===0)note(261.63*Math.pow(2,phrase[Math.floor(step/2)%16]/12),next,.17,.075,'square');
+          if(beat%4===0)note(100,next,.12,.16,'sine',40);
+          if(beat%8===4)drum(next,true);
+          if(beat%2===1)drum(next,false);
+          if(beat===0)for(const semitone of [0,4,7])note(base*2*Math.pow(2,semitone/12),next,.5,.025,'triangle');
+          next+=interval;step++;continue;
+        }
         const beat=step%16,root=roots[Math.floor(step/32)%4];
         if(beat%4===0)note(root/2,next,.28,.3);
         if(!calm&&beat%4===0)note(125,next,.16,.4,'sine',42);

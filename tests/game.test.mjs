@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { radialImpact } from '../public/game/impact.mjs';
 import { arrivalCamera } from '../public/game/cinematic.mjs';
+import { prepareAttract,advanceAttract } from '../public/game/attract.mjs';
 import {
   Match,
   generateMap,
@@ -680,5 +681,19 @@ test('Trump arrival camera remains centered and continuous across former cuts',(
     assert.ok(Math.hypot(a.position.x-b.position.x,a.position.y-b.position.y,a.position.z-b.position.z)<.01);
     assert.deepEqual(a.target,focus);assert.deepEqual(b.target,focus);
   }
+});
+test('title demo fights, throws and explodes without opening gameplay or invasions',()=>{
+  const game=new Match(730);const omitted=game.lastOmittedInvader;
+  prepareAttract(game);const positions=game.enemies.map(e=>[e.x,e.z]);let blasts=0,airborne=0,restarts=0;
+  for(let i=0;i<1200;i++){
+    const restart=advanceAttract(game,.05);
+    assert.equal(game.phase,'menu');assert.equal(game.invasion.stage,'scheduled');
+    assert.ok(game.events.every(e=>['explode','crate','defeat','hit'].includes(e.type)));
+    blasts+=game.events.filter(e=>e.type==='explode').length;airborne+=game.bombs.filter(b=>b.moving).length;game.events=[];
+    if(restart){restarts++;prepareAttract(game);}
+  }
+  assert.ok(blasts>0&&airborne>0&&restarts>0);assert.notDeepEqual(game.enemies.map(e=>[e.x,e.z]),positions);
+  assert.equal(game.lastOmittedInvader,omitted);
+  game.reset(6,'teams-right');assert.equal(game.player.hp,3);assert.ok(game.countdown>0);assert.equal(game.score,0);assert.equal(game.enemies.length,5);assert.ok(Number.isFinite(game.invasion.startsAt));
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

@@ -159,6 +159,7 @@ const initial = {
 };
 type Snapshot = typeof initial;
 type GameApi = {
+  enterLobby: () => void;
   start: (character: number, mode: string) => void;
   pause: () => void;
   resume: () => void;
@@ -188,6 +189,7 @@ export default function Home() {
   const [selected, select] = useState(0),
     [state, setState] = useState<Snapshot>(initial),
     [ready, setReady] = useState(false),
+    [entered,setEntered]=useState(false),
     [logo,setLogo]=useState(''),
     [error, setError] = useState(''),
     [muted, setMuted] = useState(false),
@@ -199,7 +201,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=15';
+    script.src = '/game/boot.js?v=16';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -255,7 +257,7 @@ export default function Home() {
     window.speechSynthesis.speak(line);
   };
   return (
-    <main className={`arcade ${playing ? 'is-playing' : ''} ${state.teamMode?'is-teams':''}`}>
+    <main className={`arcade ${playing ? 'is-playing' : ''} ${state.teamMode?'is-teams':''} ${menu&&!entered?'is-title':''}`}>
       <canvas
         ref={canvas}
         className="world"
@@ -272,7 +274,7 @@ export default function Home() {
         </Link>
         <div className="top-actions">
           <span className="live-dot" />
-          <span className="top-label">{menu?'SORTEIO DE ARENAS':state.arena.name.toUpperCase()}</span>
+          <span className="top-label">{menu?(entered?'ESCOLHA SEU LADO':'APERTE JOGAR'):state.arena.name.toUpperCase()}</span>
           <button
             className="icon-button"
             onClick={() => {
@@ -301,9 +303,26 @@ export default function Home() {
           )}
         </div>
       </header>
-      {menu && (
+      {menu&&!entered&&<section className="title-screen" aria-label="Abertura do jogo">
+        <div className="title-sparks" aria-hidden="true">{Array.from({length:18},(_,i)=><i key={i} style={{'--i':i} as React.CSSProperties}/>)}</div>
+        <div className="title-cast" aria-hidden="true">{[1,2,0,4,6,8].map((skin,i)=><div key={skin} className={`portrait portrait-${skin}`} style={{'--i':i} as React.CSSProperties}/>)}</div>
+        <div className="title-center">
+          <span className="cartridge-label">BRASIL · ARCADE · 2026</span>
+          <h1 className="title-logo">{logo?<img src={logo} alt="Bomba Eleitoral" width="2043" height="770"/>:<span>BOMBA<br/>ELEITORAL</span>}</h1>
+          <p>O debate acabou. Agora é bomba.</p>
+          <button className="play-button title-play" disabled={!ready||!!error} onClick={()=>{api.current?.enterLobby();setEntered(true);}}><Bomb/>{ready?'JOGAR':'CARREGANDO…'}<ArrowRight/></button>
+          <span className="insert-credit">ESCOLHA SEU PERSONAGEM. DISPUTE A FAIXA.</span>
+        </div>
+        <div className="title-bottom"><span>3 ARENAS · 4 INVASORES · ZERO TRÉGUA</span><button onClick={()=>setHelp(true)}>COMO JOGAR</button></div>
+      </section>}
+      {menu && entered && (
         <section className="lobby">
-          <h1 className="scene-logo">{logo?<img src={logo} alt="Bomba Eleitoral" width="2043" height="770"/>:<span>BOMBA<br/>ELEITORAL</span>}</h1>
+          <div className="selection-heading"><button className="back-title" onClick={()=>setEntered(false)}>← INÍCIO</button><h1 className="scene-logo">{logo?<img src={logo} alt="Bomba Eleitoral" width="2043" height="770"/>:<span>BOMBA<br/>ELEITORAL</span>}</h1><span className="selection-step">PREPARE SEU MANDATO</span></div>
+          <div className="selection-layout">
+          <aside className="selected-fighter" style={{'--character':ch.color} as React.CSSProperties} aria-label={`Personagem selecionado: ${ch.name}`}>
+            <span className="fighter-index">PLAYER 01</span><div className={`portrait portrait-${selected}`} aria-hidden="true"/>
+            <div className="fighter-caption"><h2>{ch.name}</h2><span>{ch.title}</span></div><p>“{ch.quote}”</p>
+          </aside>
           <div className="lobby-main">
             <div className="eyebrow">
               <span /> PRIMEIRA PESSOA. ÚLTIMO SOBREVIVENTE.
@@ -388,6 +407,7 @@ export default function Home() {
               <small>Você + 2 aliados contra 3 rivais. Sem fogo amigo. Equipes satíricas: qualquer personagem pode jogar dos dois lados.</small>
             </RadioGroup>}
             <div className="future-mode"><strong>CONTRA A POPULAÇÃO</strong><span>Multiplayer online · próxima etapa</span></div>
+          </div>
           </div>
           <aside className="arena-label">
             <div className="lobby-champion" aria-hidden="true"><div className={`portrait portrait-${selected}`} /></div>
@@ -490,7 +510,8 @@ export default function Home() {
             <span />
             <span />
           </div>
-          {state.teamMode&&<div className="team-score" aria-label="Sobreviventes por equipe">{state.teams.map(team=><span key={team.id} className={`team-${team.id}`}><b>{team.id==='left'?'ESQUERDA':'DIREITA'}</b> {team.alive}/3 {team.id===state.playerTeam?'· SEU TIME':''}</span>)}</div>}
+          {state.teamMode&&<><div className="team-score" aria-label="Sobreviventes por equipe">{state.teams.map(team=><span key={team.id} className={`team-${team.id}`}><b>{team.id==='left'?'ESQUERDA':'DIREITA'}</b> {team.alive}/3 {team.id===state.playerTeam?'· SEU TIME':''}</span>)}</div>
+          <aside className="ally-roster" aria-label="Seus aliados"><strong>SEU ESQUADRÃO</strong>{state.roster.slice(1).filter(a=>a.team===state.playerTeam).map(a=><div key={a.skin} className={`ally-card ${a.hp<=0?'eliminated':''}`} aria-label={`${cast[a.skin].name}: ${a.hp>0?`${a.hp} vidas`:'eliminado'}`}><div className={`portrait portrait-${a.skin}`} aria-hidden="true"/><div><span>{cast[a.skin].name}</span><div className="ally-hearts" aria-hidden="true">{[0,1,2].map(n=><b key={n} className={n<a.hp?'':'empty'}>♥</b>)}</div><small>{a.hp>0?'ALIADO':'ELIMINADO'}</small></div></div>)}</aside></>}
           {state.hitMarker > 0 && <output className="hit-feedback">{state.hitText}</output>}
           <div className="damage-feedback" aria-hidden="true" style={{opacity:Math.min(1,state.damageFlash/.4)}} />
           <div className="shield-feedback" aria-hidden="true" style={{opacity:Math.min(1,state.shieldFlash/.35)}} />

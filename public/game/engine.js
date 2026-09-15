@@ -1,8 +1,9 @@
 import * as T from '../vendor/three.module.js';
-import {createArenaWorlds} from './arena-worlds.js?v=13';
+import {createArenaWorlds} from './arena-worlds.js?v=16';
+import {prepareAttract,advanceAttract} from './attract.mjs?v=16';
 import { createPixelAssets } from './pixel-assets.js?v=14';
 import { createInvaderView } from './invaders-v7.js?v=15';
-import { createSoundtrack } from './soundtrack.js?v=11';
+import { createSoundtrack } from './soundtrack.js?v=16';
 import { arrivalCamera } from './cinematic.mjs?v=15';
 import { INVASION_INTRO } from './invasion.mjs?v=15';
 import { createPickupFactory } from './pickups.js?v=11';
@@ -471,8 +472,9 @@ export function createGame(canvas, onState, onError) {
     const kind=game.arena.id;
     staticRoot.visible=kind==='circo';
     for(const [id,root] of Object.entries(arenaWorlds))root.visible=id===kind;
-    const theme=kind==='favela'?{sky:0xdba475,fog:0xdba475,wall:0xb96643,trim:0xb19a79,green:0x528e86}:kind==='planalto'?{sky:0x89bfd6,fog:0xabcbd8,wall:0xd1d8cc,trim:0xf3ebd4,green:0x619877}:{sky:0x101c30,fog:0x18283a,wall:0x345470,trim:0x77929e,green:0x3b7656};
+    const theme=kind==='favela'?{sky:0x71bacd,fog:0x9cc5c4,wall:0xb96643,trim:0xb19a79,green:0x528e86}:kind==='planalto'?{sky:0x5aa9d9,fog:0xb7d4db,wall:0xd1d8cc,trim:0xf3ebd4,green:0x619877}:{sky:0x101c30,fog:0x18283a,wall:0x345470,trim:0x77929e,green:0x3b7656};
     scene.background.setHex(theme.sky);scene.fog.color.setHex(theme.fog);
+    scene.fog.density=kind==='circo'?.009:.003;
     mats.wall.color.setHex(theme.wall);mats.trim.color.setHex(theme.trim);mats.green.color.setHex(theme.green);
     sun.color.setHex(kind==='favela'?0xffce9a:kind==='planalto'?0xf1faff:0xffdfad);
     for (const maps of [bodies, bombs, flames, drops, warnings, crates, chairs, decoyBodies, barricadeBodies])
@@ -652,6 +654,7 @@ export function createGame(canvas, onState, onError) {
   heldBomb.scale.setScalar(0.44);
   hand.add(heldBomb);
   hand.visible = false;
+  prepareAttract(game);
   rebuild();
   function burst(x, y, z, n = 25, palette = [mats.fire, mats.core, mats.pink]) {
     for (let i = 0; i < n && particles.length < 280; i++) {
@@ -810,9 +813,9 @@ export function createGame(canvas, onState, onError) {
         shake = Math.max(shake, reduced ? 0 : .07 * Math.max(0,1-distance/6));
         flash.position.set(e.x * TILE, 2, e.z * TILE);
         flash.intensity = 35;
-        const level=1/(1+distance*.2);
+        const level=(game.phase==='menu'?.12:1)/(1+distance*.2);
         const pan=Math.max(-.85,Math.min(.85,((e.x-game.player.x)*Math.cos(game.player.yaw)-(e.z-game.player.z)*Math.sin(game.player.yaw))/8));
-        soundtrack?.duck(.4);
+        if(game.phase!=='menu')soundtrack?.duck(.4);
         noise(e.style==='missile' ? .5 : .34,level,pan);
         tone(e.style==='missile'?115:85,.4,'sine',.7*level,0,25,pan);
       }
@@ -1322,17 +1325,22 @@ export function createGame(canvas, onState, onError) {
       }
     } else if (game.phase === 'menu') {
       hand.visible = false;
-      const a = 0.68 + Math.sin(clock * 0.09) * 0.1;
+      if(!document.hidden&&!reduced){
+        const restart=advanceAttract(game,elapsedFrame);
+        events();
+        if(restart){prepareAttract(game);rebuild();}
+      }
+      const a = 0.8 + (reduced?0:Math.sin(clock * 0.045) * 0.2);
       camera.position.set(
-        center + Math.cos(a) * 24,
-        11 + Math.sin(clock * 0.13) * 0.3,
-        center + Math.sin(a) * 24,
+        center + Math.cos(a) * 32,
+        21 + (reduced?0:Math.sin(clock * 0.13) * 0.3),
+        center + Math.sin(a) * 32,
       );
-      camera.lookAt(center - 2, 1.5, center);
+      camera.lookAt(center - 2, 1.5, center);camera.fov=64;camera.updateProjectionMatrix();
       syncWorld(dt);
     } else hand.visible = false;
     invaderView.sync(camera);
-    soundtrack?.update(game,muted);
+    soundtrack?.update(game,muted||document.hidden);
     if(game.phase==='playing') {
       if(game.countdown>3) {
         const roll=arenaRoll(game.countdown,game.arenaIndex);
@@ -1356,6 +1364,10 @@ export function createGame(canvas, onState, onError) {
   frame = requestAnimationFrame(loop);
   emit();
   return {
+    enterLobby() {
+      initAudio();soundtrack?.reset();
+      [523.25,659.25,783.99,1046.5].forEach((n,i)=>tone(n,.14,'square',.1,i*.075));
+    },
     start(character, mode) {
       game.reset(character, mode);
       for (const key of Object.keys(keys)) delete keys[key];
@@ -1375,7 +1387,7 @@ export function createGame(canvas, onState, onError) {
     pause,
     resume,
     menu() {
-      game.phase = 'menu';
+      prepareAttract(game);rebuild();
       unlock();
       held = false;
       window.speechSynthesis?.cancel();
@@ -1401,6 +1413,7 @@ export function createGame(canvas, onState, onError) {
     },
     mute(value) {
       muted = value;
+      if(!value)initAudio();
       if (master) master.gain.setTargetAtTime(value ? 0 : .32,audio.currentTime,.025);
       if (value) window.speechSynthesis?.cancel();
     },

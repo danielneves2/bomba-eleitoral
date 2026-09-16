@@ -1,7 +1,7 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
-import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=15';
-import { circleCells } from './impact.mjs?v=11';
-import { clearSight } from './impact.mjs?v=11';
+import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=18';
+import { circleCells } from './impact.mjs?v=18';
+import { clearSight } from './impact.mjs?v=18';
 export const SIZE = 15;
 export const ARENAS = [
   {id:'circo',name:'Circo do Caos',subtitle:'Luzes, lona e promessas explosivas',color:'#d5ff46'},
@@ -668,7 +668,7 @@ export class Match {
             wait: 0.9,
           });
       }
-      this.fires.push({ id: ++this.serial, x, z, life: 0.72, owner: b.owner });
+      this.fires.push({ id: ++this.serial, x, z, life: 0.72, owner: b.owner, lethal: b.lethal === true });
     }
     this.events.push({
       type: 'explode',
@@ -970,19 +970,20 @@ export class Match {
         }
       }
     }
-    const hit = (a) =>
-      this.fires.find(
-        (f) => !this.friendlyDamage(a,f.owner) && Math.abs(f.x - a.x) < 0.58 && Math.abs(f.z - a.z) < 0.58,
-      );
-    if (p.hp > 0 && hit(p) && p.invulnerable <= 0) {
+    const hit = (a) => {
+      const overlaps = f => !this.friendlyDamage(a,f.owner) && Math.abs(f.x-a.x)<.58 && Math.abs(f.z-a.z)<.58;
+      return this.fires.find(f=>f.lethal&&overlaps(f)) || this.fires.find(overlaps);
+    };
+    const playerFire=hit(p);
+    if (p.hp > 0 && playerFire && p.invulnerable <= 0) {
       if (p.wind > 0) {
         p.invulnerable = 0.75;
         this.releaseStoredWind();
-      } else this.hurtPlayer();
+      } else this.hurtPlayer(playerFire.lethal ? p.hp : 1);
     }
     for (const e of this.enemies) {
       const fire = hit(e);
-      if (fire) this.hurtEnemy(e, fire.owner);
+      if (fire) this.hurtEnemy(e, fire.owner, fire.lethal ? e.hp : 1);
     }
     for (const item of this.items) item.wait -= dt;
     for (const item of this.items.slice())

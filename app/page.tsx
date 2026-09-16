@@ -112,7 +112,7 @@ const cast = [
   },
 ];
 const invaderNames:Record<string,string>={putin:'Putin',trump:'Trump',kim:'Kim Jong-un',bukele:'Bukele'};
-const invaderPowers:Record<string,string>={putin:'Ataque aéreo',trump:'Explosão ambulante',kim:'Mísseis',bukele:'Gaiola por 6s'};
+const invaderPowers:Record<string,string>={putin:'Bombas letais',trump:'Explosão letal',kim:'Mísseis letais',bukele:'Gaiola por 6s'};
 const invaderIds=['putin','trump','kim','bukele'];
 const initial = {
   invasion: { kind:'putin',stage:'scheduled',warning:7,remaining:14,duration:14,intro:0,introDuration:3,targeted:false,shots:0,wave:1,charging:false,charge:0,caged:0,lineup:[] as string[],schedule:[] as number[] },
@@ -166,6 +166,8 @@ type GameApi = {
   menu: () => void;
   special: () => void;
   throwBomb: () => void;
+  plantBomb: () => void;
+  quote: () => void;
   beginHold: () => void;
   releaseBomb: () => void;
   sensitivity: (value: number) => void;
@@ -190,6 +192,8 @@ export default function Home() {
     [state, setState] = useState<Snapshot>(initial),
     [ready, setReady] = useState(false),
     [entered,setEntered]=useState(false),
+    [setupStep,setSetupStep]=useState(0),
+    [helpPage,setHelpPage]=useState(0),
     [logo,setLogo]=useState(''),
     [error, setError] = useState(''),
     [muted, setMuted] = useState(false),
@@ -201,7 +205,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=16';
+    script.src = '/game/boot.js?v=18';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -257,7 +261,7 @@ export default function Home() {
     window.speechSynthesis.speak(line);
   };
   return (
-    <main className={`arcade ${playing ? 'is-playing' : ''} ${state.teamMode?'is-teams':''} ${menu&&!entered?'is-title':''}`}>
+    <main className={`arcade ${playing ? 'is-playing' : ''} ${state.phase==='spectating'?'is-spectating':''} ${state.teamMode?'is-teams':''} ${state.invasion.stage==='arrival'&&!menu?'is-arriving':''} ${menu&&!entered?'is-title':''}`}>
       <canvas
         ref={canvas}
         className="world"
@@ -313,7 +317,7 @@ export default function Home() {
         <div className="title-bottom"><span>3 ARENAS · 4 INVASORES · ZERO TRÉGUA</span><button onClick={()=>setHelp(true)}>COMO JOGAR</button></div>
       </section>}
       {menu && entered && (
-        <section className="lobby">
+        <section className={`lobby setup-step-${setupStep}`}>
           <div className="selection-heading"><button className="back-title" onClick={()=>setEntered(false)}>← INÍCIO</button><h1 className="scene-logo">{logo?<img src={logo} alt="Bomba Eleitoral" width="2043" height="770"/>:<span>BOMBA<br/>ELEITORAL</span>}</h1><span className="selection-step">PREPARE SEU MANDATO</span></div>
           <div className="selection-layout">
           <aside className="selected-fighter" style={{'--character':ch.color} as React.CSSProperties} aria-label={`Personagem selecionado: ${ch.name}`}>
@@ -321,6 +325,8 @@ export default function Home() {
             <div className="fighter-caption"><h2>{ch.name}</h2><span>{ch.title}</span></div><p>“{ch.quote}”</p>
           </aside>
           <div className="lobby-main">
+            <div className="setup-tabs" aria-label="Etapas de preparação"><button aria-pressed={setupStep===0} onClick={()=>setSetupStep(0)}>1 · PERSONAGEM</button><button aria-pressed={setupStep===1} onClick={()=>setSetupStep(1)}>2 · MODO</button></div>
+            <div className="character-step">
             <div className="eyebrow">
               <span /> PRIMEIRA PESSOA. ÚLTIMO SOBREVIVENTE.
             </div>
@@ -369,9 +375,11 @@ export default function Home() {
               </div>
               <p>“{ch.quote}”</p>
             </div>
+            </div>
             <div className="launch-row">
+              <button className="play-button setup-next" onClick={()=>setSetupStep(1)}>ESCOLHER MODO <ArrowRight/></button>
               <button
-                className="play-button"
+                className="play-button launch-match"
                 disabled={!ready || !!error}
                 onClick={start}
               >
@@ -385,6 +393,8 @@ export default function Home() {
                 JOGAR <Crosshair size={19} />
               </button>
             </div>
+            <div className="mode-step">
+            <div className="mode-step-heading">COMO VAI SER A DISPUTA?</div>
             <RadioGroup
               className="mode-select"
               value={mode}
@@ -404,6 +414,7 @@ export default function Home() {
               <small>Você + 2 aliados contra 3 rivais. Sem fogo amigo. Equipes satíricas: qualquer personagem pode jogar dos dois lados.</small>
             </RadioGroup>}
             <div className="future-mode"><strong>CONTRA A POPULAÇÃO</strong><span>Multiplayer online · próxima etapa</span></div>
+            </div>
           </div>
           </div>
           <aside className="arena-label">
@@ -449,7 +460,7 @@ export default function Home() {
               <div className="invasion-copy">
                 <span>{state.invasion.stage === 'warning' ? `⚠ INVASÃO ${state.invasion.wave} DE 3` : state.invasion.stage === 'arrival' ? 'CHEGADA DO CONVIDADO' : `INVASOR ${state.invasion.wave} DE 3 NA ARENA`}</span>
                 <strong>{state.invasion.kind === 'putin' ? 'PUTIN' : state.invasion.kind === 'kim' ? 'KIM JONG-UN' : state.invasion.kind === 'bukele' ? 'BUKELE' : 'TRUMP'} <b>{Math.ceil(state.invasion.stage === 'warning' ? state.invasion.warning : state.invasion.stage === 'arrival' ? state.invasion.intro : state.invasion.remaining)}s</b></strong>
-                <small>{state.invasion.stage === 'warning' ? 'Prepare-se. O circo ganhou um convidado.' : state.invasion.kind === 'putin' ? 'Duas bombas · saia dos círculos vermelhos!' : state.invasion.kind === 'kim' ? 'Mísseis no ar · impacto circular nas marcas laranja!' : state.invasion.kind === 'bukele' ? 'Não deixe alcançar você: gaiola por 6 segundos!' : state.invasion.charging ? 'PAROU E FICOU VERMELHO? CORRA!' : 'Ele está procurando alguém. Não deixe chegar perto!'}</small>
+                <small>{state.invasion.stage === 'warning' ? 'Prepare-se. O circo ganhou um convidado.' : state.invasion.kind === 'putin' ? 'Bombas letais · saia das marcas vermelhas!' : state.invasion.kind === 'kim' ? 'Mísseis letais · saia das marcas laranja!' : state.invasion.kind === 'bukele' ? 'Não deixe alcançar você: gaiola por 6 segundos!' : state.invasion.charging ? 'CRESCEU E FICOU VERMELHO? CORRA!' : 'Ele está procurando alguém. Não deixe chegar perto!'}</small>
                 <Progress className="invasion-progress" aria-label={state.invasion.stage === 'warning' ? 'Chegada do invasor' : 'Tempo restante da invasão'} value={state.invasion.stage === 'warning' ? (1-state.invasion.warning/7)*100 : state.invasion.remaining/state.invasion.duration*100} />
               </div>
             </aside>
@@ -594,6 +605,10 @@ export default function Home() {
                 </button>
               ))}
             </div>
+            <div className="touch-actions">
+              <button className="touch-utility" aria-label="Correr" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);api.current?.key('ShiftLeft',true);}} onPointerUp={()=>api.current?.key('ShiftLeft',false)} onPointerCancel={()=>api.current?.key('ShiftLeft',false)}>CORRER</button>
+              <button className="touch-utility" aria-label="Plantar bomba" onClick={()=>api.current?.plantBomb()}>PLANTAR</button>
+              <button className="touch-utility" aria-label="Soltar bordão" onClick={()=>api.current?.quote()}>FALA</button>
             <button
               className="touch-bomb"
               onPointerDown={(e) => {
@@ -606,6 +621,7 @@ export default function Home() {
             >
               {state.swordTime>0?<img src="/item-sword-pixel-v11.png" width="32" height="32" alt=""/>:state.chairReady?<img src="/item-chair-pixel-v11.png" width="32" height="32" alt=""/>:<Bomb />}
             </button>
+            </div>
           </div>
         </>
       )}
@@ -769,7 +785,7 @@ export default function Home() {
       )}
       {help && (
         <div className="modal-shade">
-          <section className="game-modal help-modal">
+          <section className={`game-modal help-modal help-page-${helpPage}`}>
             <button
               className="close-modal icon-button"
               aria-label="Fechar instruções"
@@ -778,16 +794,16 @@ export default function Home() {
               <X />
             </button>
             <small>MANUAL DO CAOS</small>
-            <h2>
-              ACENDA.
-              <br />
-              ARREMESSE. CORRA.
-            </h2>
+            <h2>{['CONTROLES','COMO VENCER','AJUSTES','CRÉDITOS'][helpPage]}</h2>
+            <div className="help-content">
+            <div className="help-rules" hidden={helpPage!==1}>
             <p>
               Seja o último sobrevivente para ser eleito. Após 3 minutos, começa
               a morte súbita. A explosão se espalha em cruz. Paredes param o
               fogo; caixotes viram confete.
             </p>
+            </div>
+            <div hidden={helpPage!==0}>
             <div className="key-guide">
               {[
                 ['W A S D', 'Mover'],
@@ -806,7 +822,9 @@ export default function Home() {
                 </span>
               ))}
             </div>
-            <p className="hint">
+            <p className="touch-help">No celular: direcional para andar; arraste a arena para mirar. Segure a bomba e solte para lançar. Os botões também permitem correr, plantar, usar o especial e soltar o bordão.</p>
+            </div>
+            <p className="hint" hidden={helpPage!==1}>
               O pavio dura 3 segundos desde o primeiro clique. Segurar não
               reinicia a contagem: a bomba explode na sua mão! A seta prevê a
               curva e os ricochetes. Mire para cima para passar sobre os blocos.
@@ -814,7 +832,7 @@ export default function Home() {
               recuperar vida, escudo e alcance. No celular, arraste o lado
               direito para mirar.
             </p>
-            <div className="aim-settings">
+            {helpPage===2&&<div className="aim-settings">
               <label id="sensitivity-label">
                 Sensibilidade do mouse{' '}
                 <strong>{sensitivity.toFixed(2)}×</strong>
@@ -833,7 +851,8 @@ export default function Home() {
               />
               <small>Movimento direto · câmera sem balanço lateral</small>
             </div>
-            <div className="credits">
+            }
+            <div className="credits" hidden={helpPage!==3}>
               <strong>Uma sátira em forma de fliperama.</strong>
               <p>
                 Personagens caricatos e habilidades fictícias. Falas históricas
@@ -856,6 +875,8 @@ export default function Home() {
                 sintetizado
               </span>
             </div>
+            </div>
+            <nav className="help-pagination" aria-label="Páginas do manual"><button disabled={helpPage===0} onClick={()=>setHelpPage(p=>p-1)}>← ANTERIOR</button><span>{helpPage+1} / 4</span><button disabled={helpPage===3} onClick={()=>setHelpPage(p=>p+1)}>PRÓXIMA →</button></nav>
             <button className="play-button" onClick={() => setHelp(false)}>
               ENTENDI. BORA.
             </button>

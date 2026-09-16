@@ -1,5 +1,5 @@
 import * as T from '../vendor/three.module.js';
-import { INVASION_INTRO, TRUMP_CHARGE, TRUMP_RADIUS } from './invasion.mjs?v=15';
+import { TRUMP_CHARGE, TRUMP_RADIUS } from './invasion.mjs?v=18';
 import { createMissileFactory } from './missile-model.js?v=11';
 import { loadCutout } from './cutouts-v7.js';
 import { loadCharacterAtlas } from './characters.js?v=4';
@@ -177,13 +177,14 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     }
     const charging = active && invasion.kind === 'trump' && invasion.actor.state === 'charging';
     const heat = charging ? Math.min(1,invasion.actor.charge/TRUMP_CHARGE) : 0;
-    portraits[0].color.setRGB(1,1-heat*.9,1-heat*.88);
+    portraits[0].color.setRGB(1,1-Math.min(heat/.7,1)*.94+Math.max(0,heat-.7)*.8,1-Math.min(heat/.7,1)*.98);
     walking.trump.color.copy(portraits[0].color);
     chargeRing.visible=charging;
     if(charging) {
       chargeRing.position.set(invasion.actor.x*2.7,.08,invasion.actor.z*2.7);
       chargeRing.scale.setScalar(TRUMP_RADIUS*2.7/4.7);
       chargeMat.opacity=.35+heat*.55;
+      chargeMat.color.setHex(heat>.75?0xff6508:0xff183f);
     }
     if (aircraft.visible) {
       aircraft.position.set(4 + t * 28, 13 + Math.sin(t * Math.PI) * 2.5, 18);
@@ -195,10 +196,11 @@ export function createInvaderView({ scene, game, box, mesh, material, bombModel,
     if (trump.visible) {
       const a = invasion.actor;
       const entryX=arrival?18.9:a.x*2.7,entryZ=arrival?18.9:a.z*2.7;
-      trump.position.set(entryX, arrival ? 4.65 : charging ? 0 : Math.abs(Math.sin(a.walk)) * .05, entryZ);
+      const shake=charging ? heat*heat*.12 : 0;
+      trump.position.set(entryX+Math.sin(animation*65)*shake, arrival ? 4.65 : charging ? 0 : Math.abs(Math.sin(a.walk)) * .05, entryZ+Math.cos(animation*73)*shake);
       trump.rotation.y = Math.atan2(camera.position.x - trump.position.x, camera.position.z - trump.position.z);
-      trump.userData.figure.rotation.z = charging ? 0 : Math.sin(arrival ? t * 5 : a.walk) * .025;
-      trump.scale.setScalar(arrival ? 1 : 1+heat*.12);
+      trump.userData.figure.rotation.z = charging ? Math.sin(animation*58)*heat*.035 : Math.sin(arrival ? t * 5 : a.walk) * .025;
+      trump.scale.setScalar(arrival ? 1 : 1+heat*heat*1.8);
       if (arrival) {
         parade.position.set(entryX, 4.2, entryZ);
         flagPanels.forEach((panel, i) => panel.position.z = Math.sin(t * 9 - i * .4) * .12);

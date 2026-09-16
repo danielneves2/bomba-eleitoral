@@ -2,13 +2,12 @@ import * as T from '../vendor/three.module.js';
 import {createArenaWorlds} from './arena-worlds.js?v=16';
 import {prepareAttract,advanceAttract} from './attract.mjs?v=16';
 import { createPixelAssets } from './pixel-assets.js?v=14';
-import { createInvaderView } from './invaders-v7.js?v=15';
+import { createInvaderView } from './invaders-v7.js?v=18';
 import { createSoundtrack } from './soundtrack.js?v=16';
 import { arrivalCamera } from './cinematic.mjs?v=15';
-import { INVASION_INTRO } from './invasion.mjs?v=15';
 import { createPickupFactory } from './pickups.js?v=11';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES, advanceFrame, arenaRoll } from './core.mjs?v=15';
+import { Match, SIZE, cell, NAMES, advanceFrame, arenaRoll } from './core.mjs?v=18';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -1039,13 +1038,12 @@ export function createGame(canvas, onState, onError) {
   const radar = document.createElement('canvas');
   radar.width = 150;
   radar.height = 150;
-  radar.style.cssText =
-    'position:fixed;right:4vw;top:175px;width:120px;height:120px;image-rendering:pixelated;border:1px solid #a97bcc55;background:#150e25bb;pointer-events:none;opacity:.88';
+  radar.className='game-radar';
   canvas.parentElement.appendChild(radar);
   const rc = radar.getContext('2d');
   function drawRadar() {
     radar.style.display =
-      game.phase === 'menu' || innerWidth < 700 ? 'none' : 'block';
+      game.phase === 'menu' ? 'none' : 'block';
     rc.clearRect(0, 0, 150, 150);
     for (let z = 0; z < SIZE; z++)
       for (let x = 0; x < SIZE; x++) {
@@ -1399,6 +1397,8 @@ export function createGame(canvas, onState, onError) {
     throwBomb() {
       game.throwBomb(false);
     },
+    plantBomb() { game.throwBomb(true); },
+    quote() { if(game.phase==='playing'&&game.countdown===0)game.speak(); },
     beginHold() {
       held=true;game.primaryPress();
     },

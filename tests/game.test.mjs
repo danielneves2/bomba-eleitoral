@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { chooseTrumpObjective } from '../public/game/invasion.mjs';
 import { radialImpact } from '../public/game/impact.mjs';
 import { arrivalCamera } from '../public/game/cinematic.mjs';
 import { prepareAttract,advanceAttract } from '../public/game/attract.mjs';
@@ -434,7 +435,7 @@ test('marked strike damages a contestant who stays and spares one who leaves', (
     assert.ok(g.danger().has('7,7'));
     if(escape)g.player.x=10;
     for(let i=0;i<62;i++)g.tick(.05);
-    assert.equal(g.player.hp,escape?3:2);
+    assert.equal(g.player.hp,escape?3:0);
   }
 });
 test('releasing a cooked bomb during the flyby queues it with its fuse preserved', () => {
@@ -525,13 +526,13 @@ test('Kim launches three fixed marked rockets with 2.8 seconds to escape', () =>
 test('Trump stops to charge, lets players escape, then explodes exactly once', () => {
   for(const escape of [false,true]) {
     const g=clean();g.invasion.kind='trump';g.invasion.stage='active';
-    const a=g.invasion.actor;a.x=7;a.z=7;g.player.x=8;g.player.z=7;g.player.invulnerable=0;
+    g.enemies=[];const a=g.invasion.actor;a.x=7;a.z=7;g.player.x=8;g.player.z=7;g.player.invulnerable=0;
     g.invasion.tick(g,.05);assert.equal(a.state,'charging');assert.ok(g.danger().has('8,7'));
     if(escape)g.player.x=11;
     for(let i=0;i<46;i++)g.invasion.tick(g,.05);
     assert.equal(a.x,7);assert.equal(a.z,7);assert.equal(g.player.hp,3);
     for(let i=0;i<10;i++)g.invasion.tick(g,.05);
-    assert.equal(a.state,'spent');assert.equal(g.player.hp,escape?3:2);
+    assert.equal(a.state,'spent');assert.equal(g.player.hp,escape?3:0);
     assert.equal(g.events.filter(e=>e.type==='explode'&&e.style==='trump').length,1);
   }
 });
@@ -539,7 +540,7 @@ test('missile impact hits diagonally, preserves shields and does not leave cross
   for(const shield of [0,5]) {
     const g=clean();g.player.x=8;g.player.z=8;g.player.invulnerable=0;g.player.shield=shield;
     g.map[6][6]=2;radialImpact(g,7,7,1.75,'missile');
-    assert.equal(g.player.hp,shield?3:2);assert.equal(g.map[6][6],0);assert.equal(g.fires.length,0);
+    assert.equal(g.player.hp,shield?3:0);assert.equal(g.map[6][6],0);assert.equal(g.fires.length,0);
   }
 });
 test('three distinct drafted invasions arrive in order without a fourth wave', () => {
@@ -695,5 +696,30 @@ test('title demo fights, throws and explodes without opening gameplay or invasio
   assert.ok(blasts>0&&airborne>0&&restarts>0);assert.notDeepEqual(game.enemies.map(e=>[e.x,e.z]),positions);
   assert.equal(game.lastOmittedInvader,omitted);
   game.reset(6,'teams-right');assert.equal(game.player.hp,3);assert.ok(game.countdown>0);assert.equal(game.score,0);assert.equal(game.enemies.length,5);assert.ok(Number.isFinite(game.invasion.startsAt));
+});
+test('Trump chooses a random reachable victim or the most populated blast area', () => {
+  const g=clean(),a={x:7,z:7};
+  const players=[{x:2,z:2,hp:3},{x:9,z:8,hp:3},{x:10,z:8,hp:3},{x:9,z:9,hp:3}];
+  g.random=()=>.1;assert.equal(chooseTrumpObjective(g,a,players).victim,players[0]);
+  g.random=()=>.8;const area=chooseTrumpObjective(g,a,players);assert.equal(area.count,3);assert.equal(area.victim,undefined);
+  g.path=()=>null;assert.equal(chooseTrumpObjective(g,a,players),null);
+});
+test('Trump locks his charge area and kills all exposed contestants within it', () => {
+  const g=clean();g.invasion.kind='trump';g.invasion.stage='active';
+  Object.assign(g.invasion.actor,{x:7,z:7,state:'charging',charge:2.35});
+  Object.assign(g.player,{x:8,z:7,invulnerable:0});
+  g.enemies=[{id:1,x:7,z:9,hp:3,invulnerable:0},{id:2,x:10,z:7,hp:3,invulnerable:0}];
+  g.invasion.tick(g,.05);assert.equal(g.player.hp,0);assert.equal(g.enemies[0].hp,0);assert.equal(g.enemies[1].hp,3);
+});
+test('Putin lethal fire also eliminates bots and ordinary bombs still remove one heart', () => {
+  for(const lethal of [true,false]) {
+    const g=clean();g.nextStorm=999;Object.assign(g.enemies[0],{x:7,z:7,hp:3});
+    const bomb={id:777,x:7,z:7,range:1,owner:'invader',lethal};g.bombs.push(bomb);g.explode(bomb);g.tick(.05);
+    assert.equal(g.enemies[0].hp,lethal?0:2);
+  }
+});
+test('picanha protection blocks even lethal missiles', () => {
+  const g=clean();Object.assign(g.player,{x:7,z:7,picanhaTime:4,invulnerable:0});
+  radialImpact(g,7,7,1.75,'missile');assert.equal(g.player.hp,3);
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

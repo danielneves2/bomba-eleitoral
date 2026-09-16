@@ -16,7 +16,7 @@ export function radialImpact(game, x, z, radius, kind) {
   for (const actor of [game.player, ...game.enemies]) {
     const distance = Math.hypot(actor.x - x, actor.z - z);
     if (actor.hp <= 0 || distance > radius) continue;
-    const amount = distance < .65 ? 2 : 1;
+    const amount = kind === 'missile' || kind === 'trump' ? actor.hp : distance < .65 ? 2 : 1;
     if (actor === game.player) game.hurtPlayer(amount);
     else game.hurtEnemy(actor, 'invader', amount);
   }

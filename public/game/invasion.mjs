@@ -1,4 +1,4 @@
-import { radialImpact, clearSight } from './impact.mjs?v=11';
+import { radialImpact, clearSight } from './impact.mjs?v=18';
 export const INVASION_WARNING = 7;
 export const TRUMP_CHARGE = 2.4;
 export const MISSILE_RADIUS = 1.75;
@@ -7,6 +7,17 @@ export const INVASION_DURATION = 14;
 export const INVASION_INTRO = 3;
 export const INVADERS = ['putin', 'trump', 'kim', 'bukele'];
 export const CAGE_DURATION = 6;
+
+// Lock one reachable objective per hunt; the crowd option aims at its original area.
+export function chooseTrumpObjective(game, actor, survivors) {
+  const reachable = survivors.filter(v => Math.hypot(v.x-actor.x,v.z-actor.z)<1.2 || game.path(actor,[Math.round(v.x),Math.round(v.z)],new Set()));
+  if (!reachable.length) return null;
+  if (game.random() < .5) return { victim: reachable[Math.floor(game.random()*reachable.length)] };
+  const ranked = reachable.map(v => ({x:v.x,z:v.z,count:survivors.filter(p=>Math.hypot(p.x-v.x,p.z-v.z)<=TRUMP_RADIUS).length}));
+  const best = Math.max(...ranked.map(v=>v.count));
+  const choices = ranked.filter(v=>v.count===best);
+  return choices[Math.floor(game.random()*choices.length)];
+}
 
 export class Invasion {
   constructor(random, previousOmitted = null) {
@@ -127,7 +138,7 @@ export class Invasion {
         this.targets.splice(this.targets.indexOf(target), 1);
         if (this.kind === 'kim') { radialImpact(game, target.x, target.z, MISSILE_RADIUS, 'missile'); continue; }
         // Fixed marked area: walking away remains a reliable counterplay.
-        const bomb = { id: ++game.serial, x: target.x, z: target.z, y: 0.23, owner: 'invader', range: 1, fuse: 0 };
+        const bomb = { id: ++game.serial, x: target.x, z: target.z, y: 0.23, owner: 'invader', range: 1, fuse: 0, lethal: true };
         game.bombs.push(bomb);
         game.explode(bomb);
       }
@@ -138,6 +149,25 @@ export class Invasion {
         a.charge += dt; a.beep -= dt;
         if(a.beep <= 0) { a.beep = .45 - .3 * Math.min(1,a.charge/TRUMP_CHARGE); game.events.push({type:'trump-beep',x:a.x,z:a.z,charge:a.charge/TRUMP_CHARGE}); }
         if(a.charge >= TRUMP_CHARGE) { a.state='spent'; radialImpact(game,a.x,a.z,TRUMP_RADIUS,'trump'); }
+        return false;
+      }
+      if (this.kind === 'trump') {
+        if (!a.objective || a.objective.victim?.hp <= 0) a.objective = chooseTrumpObjective(game,a,survivors);
+        const goal = a.objective?.victim || a.objective;
+        if (!goal) return false;
+        if (Math.hypot(goal.x-a.x,goal.z-a.z)<1.2 && clearSight(game,a,goal)) {
+          a.state='charging';a.target=null;a.charge=0;
+          game.events.push({type:'trump-charge',x:a.x,z:a.z});return false;
+        }
+        a.think -= dt;
+        if (!a.target || a.think <= 0) {
+          a.think=.35;
+          a.target=clearSight(game,a,goal) ? [goal.x,goal.z] : game.path(a,[Math.round(goal.x),Math.round(goal.z)],new Set());
+          if (!a.target) {a.objective=null;return false;}
+        }
+        const dx=a.target[0]-a.x,dz=a.target[1]-a.z,distance=Math.hypot(dx,dz);
+        if(distance<.06) a.target=null;
+        else {const step=Math.min(distance,dt*3.2);game.move(a,dx/distance*step,dz/distance*step);a.walk+=dt*13;}
         return false;
       }
       const nearest = survivors.filter(v=>this.kind!=='bukele'||!this.captured.has(v)).sort((p,q)=>Math.hypot(p.x-a.x,p.z-a.z)-Math.hypot(q.x-a.x,q.z-a.z));

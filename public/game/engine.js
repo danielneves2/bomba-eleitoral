@@ -15,7 +15,7 @@ const TILE = 2.7,
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
     0xff5848, 0x91b9e5,
   ];
-export function createGame(canvas, onState, onError) {
+export function createGame(canvas, onState, onError, isMultiplayer = false, socket = null, roomCode = null, playerIndex = 0) {
   let renderer;
   try {
     renderer = new T.WebGLRenderer({
@@ -1173,9 +1173,18 @@ export function createGame(canvas, onState, onError) {
     }
     keys[e.code] = true;
     if (e.repeat) return;
-    if (e.code === 'Space') game.throwBomb(true);
-    if (e.code === 'KeyE' && !e.repeat) game.special();
-    if (e.code === 'KeyQ' && game.phase === 'playing') {if(game.flight)game.cycleTarget();else if(!game.speechTime)game.speak();}
+    if (isMultiplayer && socket) {
+      if (e.code === 'Space') socket.emit('input', { roomCode, input: { throwBomb: true } });
+      if (e.code === 'KeyE' && !e.repeat) socket.emit('input', { roomCode, input: { special: true } });
+      if (e.code === 'KeyQ' && game.phase === 'playing') {
+        if(game.flight) socket.emit('input', { roomCode, input: { cycleTarget: true } });
+        else if(!game.speechTime) socket.emit('input', { roomCode, input: { speak: true } });
+      }
+    } else {
+      if (e.code === 'Space') game.throwBomb(true);
+      if (e.code === 'KeyE' && !e.repeat) game.special();
+      if (e.code === 'KeyQ' && game.phase === 'playing') {if(game.flight)game.cycleTarget();else if(!game.speechTime)game.speak();}
+    }
   });
   bind(document, 'keyup', (e) => {
     keys[e.code] = false;
@@ -1273,7 +1282,11 @@ export function createGame(canvas, onState, onError) {
         ascend:keys.Space,descend:keys.ControlLeft||keys.ControlRight,
       };
       // Catch up in small physics steps instead of stretching seconds at low FPS.
-      advanceFrame(game,elapsedFrame,input);
+      if (isMultiplayer && socket) {
+        socket.emit('input', { roomCode, input });
+      } else {
+        advanceFrame(game,elapsedFrame,input);
+      }
       events();
       syncWorld(dt);
       const moving = keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD;

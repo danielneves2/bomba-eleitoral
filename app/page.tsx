@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import {SPECIALS} from '../public/game/specials.mjs';
 import { Slider } from '@/components/ui/slider';
 import { Progress } from '@/components/ui/progress';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -110,7 +111,7 @@ const cast = [
     source:
       'https://tvefamosos.uol.com.br/colunas/flavio-ricco/2015/02/18/me-ajuda-ai---record-tambem-registrou-em-nome-dela-bordao-usado-pelo-datena.htm',
   },
-];
+].map((character,index)=>({...character,special:SPECIALS[index].name,desc:SPECIALS[index].desc}));
 const invaderNames:Record<string,string>={putin:'Putin',trump:'Trump',kim:'Kim Jong-un',bukele:'Bukele'};
 const invaderPowers:Record<string,string>={putin:'Bombas letais',trump:'Explosão letal',kim:'Mísseis letais',bukele:'Gaiola por 6s'};
 const invaderIds=['putin','trump','kim','bukele'];
@@ -148,6 +149,7 @@ const initial = {
   specialItems: 0,
   swordTime: 0,
   chairReady:false,
+  equipment:{time:0,name:'',icon:'',action:'',ready:false},hypnosisReady:false,hypnotized:[] as Array<{id:number;name:string;time:number}>,
   picanhaTime: 0,
   windTime: 0,
   vampireTime: 0,
@@ -205,7 +207,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=18';
+    script.src = '/game/boot.js?v=19';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -261,7 +263,7 @@ export default function Home() {
     window.speechSynthesis.speak(line);
   };
   return (
-    <main className={`arcade ${playing ? 'is-playing' : ''} ${state.phase==='spectating'?'is-spectating':''} ${state.teamMode?'is-teams':''} ${state.invasion.stage==='arrival'&&!menu?'is-arriving':''} ${menu&&!entered?'is-title':''}`}>
+    <main className={`arcade ${playing ? 'is-playing' : ''} ${state.phase==='spectating'?'is-spectating':''} ${state.picanhaTime>0?'is-picanha':''} ${state.teamMode?'is-teams':''} ${state.invasion.stage==='arrival'&&!menu?'is-arriving':''} ${menu&&!entered?'is-title':''}`}>
       <canvas
         ref={canvas}
         className="world"
@@ -563,13 +565,13 @@ export default function Home() {
             <button
               className={`special-button ${state.special >= 1 ? 'charged' : ''}`}
               onClick={() => api.current?.special()}
-              disabled={state.special < 1}
+              disabled={state.special < 1 || !playing || state.countdown > 0 || state.invasion.stage==='arrival'}
             >
               <Zap />
               <span>
-                {state.chairReady?'Arremessar cadeira':state.specialItems>0 ? (selected===0?'Picanha coletada':selected===6?'Equipar lâmina':'Equipar cadeira') : ch.special}
+                {state.equipment.ready ? (['','Arrancada','Soltar o vento','Mordida vampírica','Exorcizar carteira','Detonar bombas','','Fincar bandeira','Arremessar cadeira'][selected]) : state.specialItems>0 ? SPECIALS[selected].item+' coletado' : ch.special}
                 <small>
-                  {state.chairReady?'MIRE · CLIQUE OU E PARA LANÇAR':state.specialItems>0 ? `${state.specialItems} ITEM${state.specialItems>1?'S':''} · E PARA USAR` : state.special >= 1
+                  {state.equipment.ready?'E · USAR ITEM EQUIPADO':state.specialItems>0 ? `${state.specialItems} ITEM${state.specialItems>1?'S':''} · E PARA USAR` : state.special >= 1
                     ? 'ESPECIAL PRONTO'
                     : `CARREGANDO ${Math.floor(state.special * 100)}%`}
                 </small>
@@ -660,13 +662,14 @@ export default function Home() {
           <div className="countdown-track"><i style={{transform:`scaleX(${1-state.countdown/3})`}} /></div>
         </div>
       )}
-      {playing && state.countdown===0 && state.invasion.stage!=='arrival' && (state.picanhaTime>0||state.swordTime>0||state.chairReady) && (
-        <div className={`equipment-status ${state.picanhaTime>0?'equipment-shield':''}`} role="status">
-          <img src={state.picanhaTime>0?'/item-steak-pixel-v11.png':state.swordTime>0?'/item-sword-pixel-v11.png':'/item-chair-pixel-v11.png'} alt="" width="56" height="56"/>
-          <div><strong>{state.picanhaTime>0?'ESCUDO DE PICANHA':state.swordTime>0?'LÂMINA EQUIPADA':'CADEIRA NA MÃO'}</strong>
-          <span>{state.picanhaTime>0?`INVULNERÁVEL · ${state.picanhaTime.toFixed(1)}s`:state.swordTime>0?`CLIQUE PARA GOLPEAR · ${state.swordTime.toFixed(1)}s`:'MIRE E CLIQUE PARA ARREMESSAR'}</span></div>
+      {playing && state.countdown===0 && state.invasion.stage!=='arrival' && state.equipment.time>0 && (
+        <div className={`equipment-status ${state.picanhaTime>0?'equipment-shield':''} ${state.hypnosisReady?'gaze-ready':''}`} role="status">
+          <img src={state.equipment.icon} alt="" width="48" height="48"/>
+          <div><strong>{state.equipment.name.toUpperCase()}</strong><span>{state.equipment.action}{!state.chairReady&&` · ${state.equipment.time.toFixed(1)}s`}</span></div>
         </div>
       )}
+      {playing&&state.picanhaTime>0&&<div className="picanha-aura" aria-hidden="true"><span>✦</span><span>✦</span><span>✦</span><span>✦</span></div>}
+      {playing&&state.hypnotized.length>0&&<div className="hypnosis-status" role="status">{state.hypnotized.map(a=><span key={a.id}>💫 {a.name} · {a.time.toFixed(1)}s</span>)}<small>HIPNOTIZADO · APROVEITE PARA LANÇAR A BOMBA</small></div>}
       {playing && state.holding && (
         <div className={`cook-hud ${state.fuse < 1 ? 'critical' : ''}`}>
           <div>

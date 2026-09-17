@@ -1,4 +1,4 @@
-import { createPixelAssets } from './pixel-assets.js?v=11';
+import { createPixelAssets } from './pixel-assets.js?v=19';
 import * as T from '../vendor/three.module.js';
 
 // Functional pickup symbols are solid voxel models, readable from the FPS camera.
@@ -9,7 +9,7 @@ export function createPickupFactory({ mesh, box, material, batchStatic, geometri
     ['OOOOOOOOO','OXXXXXXXO','OX++XXXXO','OXXXOXXXO','OXXOOOXXO','OXXXOXXXO','.OXXXXXO.','..OXXXO..','...OXO...','....O....'],
     ['....XX...','...XXX...','..XXXX...','.XXXXX...','XXXXXXXXX','...XXXXX.','...XXXX..','...XXX...','...XX....']
   ];
-  const colors=[0xff3b59,0x3eafff,0xffc642,0xffa34b,0xed6557,0x92e5ff];
+  const colors=[0xff3b59,0x3eafff,0xffc642,0xffa34b,0xed6557,0x92e5ff,0x7bdc92,0x8bebdd,0xac7ad3,0x5499ef,0xf0cb6a,0xeb5461];
   const palettes=colors.map(color=>({
     fill:material(color,color,.35),edge:material(0xf9e2a7),light:material(0xfff4e2,0xffffff,.18),
     side:material(new T.Color(color).multiplyScalar(.36))
@@ -21,7 +21,7 @@ export function createPickupFactory({ mesh, box, material, batchStatic, geometri
   materials.push(...rings,shadow);
   return type=>{
     const root=new T.Group(),figure=new T.Group();root.add(figure);root.userData.figure=figure;
-    if(type>=3){const sprite=assets(['steak','chair','sword'][type-3],1.4);figure.add(sprite);const ring=mesh(root,ringGeo,rings[type],0,.035,0);ring.rotation.x=-Math.PI/2;return root;}
+    if(type>=3){const sprite=assets(['steak','chair','sword','handlebar','windjar','goblet','workbook','radio','flag'][type-3],1.4);figure.add(sprite);const ring=mesh(root,ringGeo,rings[type],0,.035,0);ring.rotation.x=-Math.PI/2;return root;}
     const pattern=patterns[type],palette=palettes[type],pixel=.115;
     pattern.forEach((row,y)=>row.split('').forEach((value,x)=>{
       if(value==='.')return;

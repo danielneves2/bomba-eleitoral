@@ -1,4 +1,5 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
+import { SPECIALS, SPECIAL_DAMAGE, faces, equipment } from './specials.mjs?v=19';
 import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=18';
 import { circleCells } from './impact.mjs?v=18';
 import { clearSight } from './impact.mjs?v=18';
@@ -258,6 +259,7 @@ export class Match {
     this.fires = [];
     this.chairs = [];
     this.chairReady=false;this.chairThrowTime=0;this.equipTime=0;
+    this.bookTime=0;this.remoteTime=0;this.flagTime=0;this.actionAnim=0;this.specialCooldown=0;this.dashTime=0;this.specialEffects=[];
     this.decoys = [];
     this.barricades = [];
     this.property = null;
@@ -304,6 +306,7 @@ export class Match {
         target: null,
         invulnerable: 0,
         ramCooldown: 0,
+        yaw: Math.atan2(x-7,z-7),stun:0,stunKind:null,
         speed: mode === 'treino' ? 1.03 : 1.35,
         walk: 0,
       }),
@@ -386,7 +389,7 @@ export class Match {
     const p=this.player;
     const victim=this.enemies.find(e=>!this.sameTeam(e,p)&&e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
       (-(e.x-p.x)*Math.sin(p.yaw)-(e.z-p.z)*Math.cos(p.yaw))>Math.hypot(e.x-p.x,e.z-p.z)*.5&&clearSight(this,p,e));
-    const hit=victim&&this.hurtEnemy(victim,'special',2);
+    const hit=victim&&this.hurtEnemy(victim,'special',SPECIAL_DAMAGE);
     if(hit)victim.invulnerable=.22;
     this.events.push({type:hit?'sword-hit':'sword-swing'});return true;
   }
@@ -553,19 +556,68 @@ export class Match {
       const x = Math.round(p.x - Math.sin(p.yaw) * n),
         z = Math.round(p.z - Math.cos(p.yaw) * n);
       if (x <= 0 || x >= SIZE - 1 || z <= 0 || z >= SIZE - 1 || this.map[z][x] === 1 || this.map[z][x] === 3) break;
-      this.fires.push({ id: ++this.serial, x, z, life: 0.5, owner: 'special' });
+      this.fires.push({ id: ++this.serial, x, z, life: 0.5, owner: 'special', damage: SPECIAL_DAMAGE });
       if (this.map[z][x] === 2) {
         this.map[z][x] = 0;
         this.events.push({ type: 'crate', x, z });
         break;
       }
     }
+    for(const bomb of this.bombs) if(Math.hypot(bomb.x-p.x,bomb.z-p.z)<5&&faces(p,bomb,.75)&&clearSight(this,p,bomb)) {
+      bomb.moving=true;bomb.y=Math.max(.35,bomb.y||.23);bomb.vx=-Math.sin(p.yaw)*7;bomb.vz=-Math.cos(p.yaw)*7;bomb.vy=2;bomb.flight=1;
+    }
+    this.actionAnim=.65;this.specialEffects.push({id:++this.serial,kind:'wind',x:p.x,z:p.z,yaw:p.yaw,time:.65,max:.65});
     this.notice = 'VENTO DEVOLVIDO!';
     this.noticeTime = 2;
     this.events.push({ type: 'wind-release', x: p.x, z: p.z, yaw: p.yaw });
   }
-  special() {
+  hypnosisTarget() {
+    if(this.character!==4||this.bookTime<=0)return null;
+    return this.enemies.filter(e=>e.hp>0&&!this.sameTeam(e,this.player)&&!(e.stun>0)&&Math.hypot(e.x-this.player.x,e.z-this.player.z)<=4.5&&faces(this.player,e,.85)&&faces(e,this.player,.5)&&clearSight(this,this.player,e)).sort((a,b)=>Math.hypot(a.x-this.player.x,a.z-this.player.z)-Math.hypot(b.x-this.player.x,b.z-this.player.z))[0]||null;
+  }
+  occupationPreview() {
+    const p=this.player,fx=Math.abs(Math.sin(p.yaw))>Math.abs(Math.cos(p.yaw))?-Math.sign(Math.sin(p.yaw)):0,fz=fx===0?-Math.sign(Math.cos(p.yaw)):0;
+    const cx=Math.round(p.x+fx*2),cz=Math.round(p.z+fz*2);
+    return [-1,0,1].map(n=>({x:cx-fz*n,z:cz+fx*n})).map(spot=>({...spot,valid:spot.x>0&&spot.x<SIZE-1&&spot.z>0&&spot.z<SIZE-1&&this.map[spot.z][spot.x]===0&&clearSight(this,p,spot)&&![p,...this.enemies.filter(e=>e.hp>0)].some(a=>Math.abs(a.x-spot.x)<.8&&Math.abs(a.z-spot.z)<.8)&&!this.bombs.some(b=>cell(b.x,b.z)===cell(spot.x,spot.z))}));
+  }
+  useEquippedSpecial() {
+    const p=this.player;
+    if(this.specialCooldown>0)return false;
+    if(this.character===1&&p.ram>0) {this.dashTime=.6;this.actionAnim=.6;this.specialCooldown=1.6;this.events.push({type:'motor-boost'});return true;}
+    if(this.character===2&&p.wind>0) {this.releaseStoredWind();return true;}
+    if(this.character===3&&p.vampire>0) {
+      const target=this.enemies.filter(e=>e.hp>0&&!this.sameTeam(e,p)&&Math.hypot(e.x-p.x,e.z-p.z)<4.5&&faces(p,e,.8)&&clearSight(this,p,e)).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
+      if(!target){this.notice='MIRE EM UM RIVAL PRÓXIMO';this.noticeTime=1;return false;}
+      if(!this.hurtEnemy(target,'special',SPECIAL_DAMAGE))return false;
+      p.vampire=0;p.hp=Math.min(3,p.hp+1);this.actionAnim=.8;
+      this.specialEffects.push({id:++this.serial,kind:'bats',x:p.x,z:p.z,tx:target.x,tz:target.z,time:.8,max:.8});
+      this.notice='MORDIDA! +1 CORAÇÃO';this.noticeTime=2;this.events.push({type:'vampire-bite',x:target.x,z:target.z});return true;
+    }
+    if(this.character===4&&this.bookTime>0) {
+      const target=this.hypnosisTarget();this.actionAnim=.5;this.specialCooldown=.6;
+      this.events.push({type:target?'hypnosis':'book-miss',x:target?.x??p.x,z:target?.z??p.z});
+      if(!target){this.notice='ELE PRECISA OLHAR PARA A CARTEIRA!';this.noticeTime=1.2;return false;}
+      target.stun=3;target.stunKind='hypnosis';target.target=null;target.vx=0;target.vz=0;this.bookTime=0;
+      this.notice='HIPNOTIZADO POR 3s · JOGUE A BOMBA!';this.noticeTime=2.5;return true;
+    }
+    if(this.character===5&&this.remoteTime>0) {
+      const bombs=this.bombs.filter(b=>b.owner==='player');
+      if(!bombs.length){this.notice='PLANTE OU LANCE UMA BOMBA PRIMEIRO';this.noticeTime=1.5;return false;}
+      for(const b of bombs){b.damage=SPECIAL_DAMAGE;b.fuse=Math.min(b.fuse,.25);}
+      this.remoteTime=0;this.actionAnim=.65;this.notice='MISSÃO: DETONAR · 2 CORAÇÕES!';this.noticeTime=2;this.events.push({type:'remote-trigger'});return true;
+    }
+    if(this.character===7&&this.flagTime>0) {
+      const spots=this.occupationPreview().filter(s=>s.valid);
+      if(!spots.length){this.notice='MIRE NUM ESPAÇO LIVRE';this.noticeTime=1;return false;}
+      for(const {x,z} of spots){this.map[z][x]=3;const b={id:++this.serial,x,z,time:8};this.barricades.push(b);this.events.push({type:'barricade',...b});}
+      this.flagTime=0;this.actionAnim=.7;this.notice='OCUPADO POR 8s · USE A COBERTURA!';this.noticeTime=2;this.events.push({type:'flag-plant'});return true;
+    }
     if(this.character===8&&this.chairReady)return this.throwChair();
+    return false;
+  }
+  special() {
+    if(this.invasion.stage==='arrival'||this.phase!=='playing'||this.countdown>0||this.player.hp<=0||this.heldBomb)return false;
+    if(equipment(this).ready)return this.useEquippedSpecial();
     if (
       this.invasion.stage === 'arrival' ||
       this.phase !== 'playing' ||
@@ -588,50 +640,23 @@ export class Match {
     if (this.character === 1) {
       p.turbo = 6;
       p.ram = 6;
-      this.notice = 'MOTOCIATA!';
+      this.notice = 'MOTOCIATA · E PARA ARRANCAR!';
     }
     if (this.character === 2) {
       p.wind = 8;
-      this.notice = 'ESTOCANDO O VENTO!';
+      this.notice = 'POTE DE VENTO · E PARA SOLTAR!';
     }
     if (this.character === 3) {
       p.vampire = 10;
-      this.notice = 'O VAMPIRO NÃO RENUNCIA!';
+      this.notice = 'PACTO ATIVO · E PARA MORDER!';
     }
-    if (this.character === 4) {
-      this.decoys = [0, 1, 2].map((n) => {
-        const angle = p.yaw + (n - 1) * 1.45;
-        return { id: ++this.serial, x: p.x + Math.sin(angle) * 1.25, z: p.z + Math.cos(angle) * 1.25, skin: this.character, time: 7, walk: n };
-      }).filter((d) => this.canMove(d.x, d.z));
-      this.notice = 'MUDA O MINDSET!';
-    }
-    if (this.character === 5) {
-      this.specialCharge = 0;
-      this.cooldown = 0;
-      for (const b of this.bombs)
-        if (b.owner === 'player') b.fuse = Math.min(b.fuse, 0.25);
-      this.notice = 'MISSÃO: DETONAR!';
-    }
+    if(this.character===4){this.bookTime=10;this.notice='CARTEIRA NA MÃO · ESPERE O OLHAR E APERTE E!';}
+    if(this.character===5){this.remoteTime=12;this.notice='RÁDIO PRONTO · PLANTE BOMBAS, DEPOIS E!';}
     if (this.character === 6) {
       this.swordTime=8;this.swordCooldown=0;this.notice='LÂMINA EQUIPADA · CLIQUE PARA GOLPEAR!';
       if(!item)this.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };
     }
-    if (this.character === 7) {
-      const fx = Math.abs(Math.sin(p.yaw)) > Math.abs(Math.cos(p.yaw)) ? -Math.sign(Math.sin(p.yaw)) : 0,
-        fz = fx === 0 ? -Math.sign(Math.cos(p.yaw)) : 0,
-        px = Math.round(p.x), pz = Math.round(p.z),
-        spots = [[px - fx, pz - fz], [px - fz, pz + fx], [px + fz, pz - fx]];
-      for (const [x, z] of spots)
-        if (x > 0 && x < SIZE - 1 && z > 0 && z < SIZE - 1 && this.map[z][x] === 0 &&
-          !(Math.abs(p.x - x) <= 0.71 && Math.abs(p.z - z) <= 0.71) &&
-          !this.enemies.some((e) => e.hp > 0 && cell(e.x, e.z) === cell(x, z))) {
-          this.map[z][x] = 3;
-          const barrier = { id: ++this.serial, x, z, time: 8 };
-          this.barricades.push(barrier);
-          this.events.push({ type: 'barricade', ...barrier });
-        }
-      this.notice = 'OCUPAÇÃO DA ARENA!';
-    }
+    if(this.character===7){this.flagTime=10;this.notice='BANDEIRA NA MÃO · MIRE E APERTE E!';}
     if (this.character === 8) {
       this.chairReady=true;
       this.notice = 'CADEIRA NA MÃO · CLIQUE PARA ARREMESSAR!';
@@ -664,11 +689,11 @@ export class Match {
             id: ++this.serial,
             x,
             z,
-            type: [0,6,8].includes(this.character)&&this.random()<.4 ? ({0:3,8:4,6:5}[this.character]) : Math.floor(this.random() * 3),
+            type: this.random()<.4 ? SPECIALS[this.character].type : Math.floor(this.random() * 3),
             wait: 0.9,
           });
       }
-      this.fires.push({ id: ++this.serial, x, z, life: 0.72, owner: b.owner, lethal: b.lethal === true });
+      this.fires.push({ id: ++this.serial, x, z, life: 0.72, owner: b.owner, lethal: b.lethal === true, damage: b.damage || 1 });
     }
     this.events.push({
       type: 'explode',
@@ -745,15 +770,18 @@ export class Match {
     this.shieldFlash = Math.max(0, this.shieldFlash - dt);
     const p = this.player;
     this.elapsed += dt;
+    for(const key of ['bookTime','remoteTime','flagTime','actionAnim','specialCooldown','dashTime'])this[key]=Math.max(0,this[key]-dt);
+    for(const effect of this.specialEffects)effect.time-=dt;
+    this.specialEffects=this.specialEffects.filter(e=>e.time>0);
     this.swordTime=Math.max(0,this.swordTime-dt);this.swordCooldown-=dt;this.swordSwing=Math.max(0,this.swordSwing-dt);
     this.equipTime=Math.max(0,this.equipTime-dt);this.chairThrowTime=Math.max(0,this.chairThrowTime-dt);
     if(input.attack&&this.swordTime>0)this.swingSword();
-    if([0,6,8].includes(this.character)&&this.elapsed>=this.nextSpecialItem) {
+    if(this.elapsed>=this.nextSpecialItem) {
       this.nextSpecialItem=this.elapsed+18+this.random()*12;
       if(this.items.filter(i=>i.type>=3).length<3) {
         const spots=[],danger=this.danger();
         for(let z=1;z<SIZE-1;z++)for(let x=1;x<SIZE-1;x++)if(!this.solid(x,z)&&!this.items.some(i=>cell(i.x,i.z)===cell(x,z))&&!danger.has(cell(x,z))&&Math.hypot(x-p.x,z-p.z)>1&&this.path(p,[x,z],new Set()))spots.push([x,z]);
-        if(spots.length){const [x,z]=spots[Math.floor(this.random()*spots.length)];this.items.push({id:++this.serial,x,z,type:({0:3,8:4,6:5}[this.character]),wait:.5});}
+        if(spots.length){const [x,z]=spots[Math.floor(this.random()*spots.length)];this.items.push({id:++this.serial,x,z,type:SPECIALS[this.character].type,wait:.5});}
       }
     }
     this.cooldown -= dt;
@@ -786,10 +814,10 @@ export class Match {
         this.events.push({ type: 'barricade-end', id: barrier.id });
       }
     }
-    const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0),
+    const forward = this.dashTime>0 ? 1 : (input.forward ? 1 : 0) - (input.back ? 1 : 0),
       side = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const length = Math.hypot(forward, side) || 1,
-      speed = (input.run ? 3.3 : 2.5) * (p.turbo > 0 ? 1.5 : 1),
+      speed = (this.dashTime>0 ? 6 : input.run ? 3.3 : 2.5) * (p.turbo > 0&&this.dashTime<=0 ? 1.5 : 1),
       blend = 1 - Math.exp(-(forward || side ? 22 : 36) * dt);
     const active = p.hp > 0 && this.phase === 'playing';
     p.vx +=
@@ -870,10 +898,10 @@ export class Match {
         this.events.push({ type: 'chair-bomb', x: chair.x, z: chair.z });
       }
       const victim = this.enemies.find((e) => !this.sameTeam(e,p) && e.hp > 0 && Math.hypot(e.x - chair.x, e.z - chair.z) < 0.62);
-      if (victim && this.hurtEnemy(victim, 'special')) {
+      if (victim && this.hurtEnemy(victim, 'special', SPECIAL_DAMAGE)) {
         const length = Math.hypot(chair.vx, chair.vz) || 1;
         for (let n = 0; n < 4; n++) this.move(victim, chair.vx / length * 0.24, chair.vz / length * 0.24);
-        victim.invulnerable = 1.35;
+        victim.invulnerable = .9;victim.stun=1;victim.stunKind='chair';
         chair.time = 0;
         this.notice = 'CADEIRADA!';
         this.noticeTime = 1.8;
@@ -888,6 +916,9 @@ export class Match {
       if (e.hp <= 0) continue;
       e.invulnerable = Math.max(0, e.invulnerable - dt);
       e.ramCooldown = Math.max(0, (e.ramCooldown || 0) - dt);
+      e.stun=Math.max(0,(e.stun||0)-dt);
+      if(e.stun>0)continue;
+      e.stunKind=null;
       e.cd -= dt;
       e.think -= dt;
       const endangered = hazard.has(cell(e.x, e.z));
@@ -929,6 +960,7 @@ export class Match {
           e.target = null;
         } else {
           const move = Math.min(d, e.speed * dt * (endangered ? 1.65 : 1));
+          e.yaw=Math.atan2(-dx,-dz);
           this.move(e, (dx / d) * move, (dz / d) * move);
           e.walk += dt * 8;
         }
@@ -962,7 +994,7 @@ export class Match {
       const ramSpeed = Math.hypot(p.vx, p.vz);
       if (p.ram > 0 && ramSpeed > 1.1 && e.ramCooldown <= 0 && Math.hypot(p.x - e.x, p.z - e.z) < 0.82) {
         e.ramCooldown = 1.4;
-        if (this.hurtEnemy(e, 'special')) {
+        if (this.hurtEnemy(e, 'special', SPECIAL_DAMAGE)) {
           for (let n = 0; n < 5; n++) this.move(e, p.vx / ramSpeed * 0.2, p.vz / ramSpeed * 0.2);
           this.notice = 'ABRE CAMINHO!';
           this.noticeTime = 1.2;
@@ -972,18 +1004,18 @@ export class Match {
     }
     const hit = (a) => {
       const overlaps = f => !this.friendlyDamage(a,f.owner) && Math.abs(f.x-a.x)<.58 && Math.abs(f.z-a.z)<.58;
-      return this.fires.find(f=>f.lethal&&overlaps(f)) || this.fires.find(overlaps);
+      return this.fires.find(f=>f.lethal&&overlaps(f)) || this.fires.find(f=>f.damage===SPECIAL_DAMAGE&&overlaps(f)) || this.fires.find(overlaps);
     };
     const playerFire=hit(p);
     if (p.hp > 0 && playerFire && p.invulnerable <= 0) {
       if (p.wind > 0) {
         p.invulnerable = 0.75;
         this.releaseStoredWind();
-      } else this.hurtPlayer(playerFire.lethal ? p.hp : 1);
+      } else this.hurtPlayer(playerFire.lethal ? p.hp : playerFire.damage || 1);
     }
     for (const e of this.enemies) {
       const fire = hit(e);
-      if (fire) this.hurtEnemy(e, fire.owner, fire.lethal ? e.hp : 1);
+      if (fire) this.hurtEnemy(e, fire.owner, fire.lethal ? e.hp : fire.damage || 1);
     }
     for (const item of this.items) item.wait -= dt;
     for (const item of this.items.slice())
@@ -1007,7 +1039,7 @@ export class Match {
           'PICANHA COLETADA · E PARA USAR!',
           'CADEIRA COLETADA · E PARA LANÇAR!',
           'ESPADA COLETADA · E PARA EQUIPAR!',
-        ][item.type];
+        ][item.type] || `${SPECIALS[this.character].item.toUpperCase()} COLETADO · E PARA EQUIPAR!`;
         this.noticeTime = 1.8;
         this.events.push({ type: 'pickup' });
       }
@@ -1095,7 +1127,8 @@ export class Match {
           this.bombs.filter((b) => b.owner === 'player').length -
           (this.heldBomb ? 1 : 0),
       ),
-      special: this.chairReady||this.specialItems>0?1:this.specialCharge,
+      special: equipment(this).ready||this.specialItems>0?1:this.specialCharge,
+      equipment:equipment(this),hypnosisReady:!!this.hypnosisTarget(),hypnotized:this.enemies.filter(e=>e.stunKind==='hypnosis'&&e.stun>0).map(e=>({id:e.id,name:NAMES[e.skin],time:e.stun})),
       chairReady:this.chairReady,
       specialItems: this.specialItems, swordTime: this.swordTime,
       chaos: this.chaos,

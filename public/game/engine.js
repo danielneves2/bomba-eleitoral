@@ -1,13 +1,14 @@
 import * as T from '../vendor/three.module.js';
+import {createSpecialView} from './special-view.js?v=19';
 import {createArenaWorlds} from './arena-worlds.js?v=16';
 import {prepareAttract,advanceAttract} from './attract.mjs?v=16';
-import { createPixelAssets } from './pixel-assets.js?v=14';
+import { createPixelAssets } from './pixel-assets.js?v=19';
 import { createInvaderView } from './invaders-v7.js?v=18';
 import { createSoundtrack } from './soundtrack.js?v=16';
 import { arrivalCamera } from './cinematic.mjs?v=15';
-import { createPickupFactory } from './pickups.js?v=11';
+import { createPickupFactory } from './pickups.js?v=19';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES, advanceFrame, arenaRoll } from './core.mjs?v=18';
+import { Match, SIZE, cell, NAMES, advanceFrame, arenaRoll } from './core.mjs?v=19';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -374,6 +375,11 @@ export function createGame(canvas, onState, onError) {
     const health = new T.Group(); health.position.y = 2.93; root.add(health);
     for(let i=0;i<e.hp;i++) box(health,.2,.055,.035,(i-(e.hp-1)/2)*.26,0,0,mats.red);
     root.userData.health=health;
+    const sleep=label('Z Z Z','#ffdc7a',1.1,.38);sleep.position.y=1.55;sleep.visible=false;root.add(sleep);root.userData.sleep=sleep;
+    const gaze=label('OLHOU! E','#96ffce',1.6,.3);gaze.position.y=3.25;gaze.visible=false;root.add(gaze);root.userData.gaze=gaze;
+    const arrow=new T.Group();root.add(arrow);root.userData.facing=arrow;
+    const marker=box(arrow,.15,.04,.7,0,.05,-.96,mats.cyan);
+    box(arrow,.43,.04,.16,0,.05,-1.25,mats.cyan);marker.renderOrder=1;
     bodies.set(e.id,root);
   }
   function makeDecoy(e) {
@@ -398,6 +404,7 @@ export function createGame(canvas, onState, onError) {
     box(root,2.3,1.42,2.3,0,.71,0,mats.occupation);
     box(root,2.42,.16,2.42,0,1.42,0,mats.yellow);
     const sign=label('OCUPADO','#fff0ce',1.75,.34);sign.position.set(0,1.02,1.18);root.add(sign);
+    const flag=pixelAsset('flag',1.5);flag.position.set(.7,2.2,0);root.add(flag);root.userData.flag=flag;
     barricadeBodies.set(e.id,root);
   }
   function makeCrate(x, z) {
@@ -632,19 +639,11 @@ export function createGame(canvas, onState, onError) {
   const pixelAsset=createPixelAssets({geometries,materials,textures});
   const equippedSword=pixelAsset('sword',.58);equippedSword.position.set(.33,-.22,-.68);hand.add(equippedSword);
   const equippedChair=pixelAsset('chair',.72);equippedChair.position.set(.32,-.13,-.82);hand.add(equippedChair);
-  const steakShield=new T.Group();camera.add(steakShield);
-  const largeSteak=pixelAsset('steak',.68);largeSteak.position.set(-.32,-.17,-.82);largeSteak.rotation.z=-.18;steakShield.add(largeSteak);
-  for(const sprite of [equippedSword,equippedChair,largeSteak]) {
-    sprite.material=sprite.material.clone();materials.push(sprite.material);
-    sprite.material.depthTest=false;sprite.material.depthWrite=false;sprite.renderOrder=100;
+  for(const sprite of [equippedSword,equippedChair]) {
+    sprite.material=sprite.material.clone();materials.push(sprite.material);sprite.material.depthTest=false;sprite.material.depthWrite=false;sprite.renderOrder=100;
   }
-  largeSteak.scale.setScalar(1.04);largeSteak.position.x=-.46;equippedSword.scale.setScalar(.7);equippedChair.scale.setScalar(.86);
-  const shieldShape=new T.Shape();shieldShape.moveTo(-.56,.5);shieldShape.lineTo(-.32,.66);shieldShape.lineTo(.32,.66);shieldShape.lineTo(.56,.5);shieldShape.lineTo(.5,-.27);shieldShape.lineTo(.3,-.51);shieldShape.lineTo(0,-.68);shieldShape.lineTo(-.3,-.51);shieldShape.lineTo(-.5,-.27);shieldShape.closePath();
-  const shieldGeo=new T.ShapeGeometry(shieldShape);geometries.push(shieldGeo);
-  const shieldMat=new T.MeshBasicMaterial({color:0xffd363,side:T.DoubleSide,depthTest:false,depthWrite:false});materials.push(shieldMat);
-  const shieldRim=mesh(steakShield,shieldGeo,shieldMat);shieldRim.renderOrder=98;
-  const innerMat=shieldMat.clone();innerMat.color.setHex(0x4d2013);materials.push(innerMat);
-  const shieldInner=mesh(steakShield,shieldGeo,innerMat);shieldInner.scale.setScalar(.92);shieldInner.renderOrder=99;
+  equippedSword.scale.setScalar(.7);equippedChair.scale.setScalar(.86);
+  const specialView=createSpecialView({camera,scene,game,box,mesh,geometries,materials,textures});
   camera.add(hand);
   box(hand, 0.24, 0.35, 0.31, 0.34, -0.4, -0.55, mats.skin);
   box(hand, 0.28, 0.46, 0.34, 0.39, -0.67, -0.48, mats.dark);
@@ -786,6 +785,12 @@ export function createGame(canvas, onState, onError) {
       if(e.type==='missile-launch') { soundtrack?.duck(.6);tone(80,.7,'sawtooth',.2,0,480);noise(.4,.35); }
       if(e.type==='cage-capture') {tone(180,.25,'square',e.player?.22:.08,0,70);noise(.12,.18);}
       if(e.type==='cage-release'&&e.player) {[520,780].forEach((n,i)=>tone(n,.16,'triangle',.15,i*.12));}
+      if(e.type==='hypnosis'){[880,1108,1318,1760].forEach((n,i)=>tone(n,.18,'sine',.12,i*.08));burst(e.x*TILE,1.6,e.z*TILE,22,[mats.cyan,mats.yellow]);}
+      if(e.type==='book-miss')tone(200,.12,'triangle',.08,0,130);
+      if(e.type==='remote-trigger'){tone(1200,.08,'square',.1);tone(1600,.08,'square',.1,.1);}
+      if(e.type==='flag-plant'){noise(.15,.13);tone(210,.3,'triangle',.15,0,430);}
+      if(e.type==='vampire-bite'){tone(180,.35,'sawtooth',.1,0,600);noise(.18,.07);}
+      if(e.type==='motor-boost'){tone(90,.55,'sawtooth',.13,0,280);}
       if(e.type==='sword-hit') {noise(.07,.16);tone(1300,.1,'triangle',.15,0,320);}
       if(e.type==='sword-swing') {noise(.065,.055);}
       if(e.type==='trump-charge') {soundtrack?.duck(2.4);tone(200,.3,'triangle',.2,0,400);}
@@ -876,6 +881,10 @@ export function createGame(canvas, onState, onError) {
         if(game.character===0){tone(330,.3,'triangle',.2,0,660);tone(880,.2,'sine',.16,.1);}
         else if(game.character===6){noise(.12,.1);tone(1500,.2,'triangle',.18,0,650);}
         else if(game.character===8){tone(230,.14,'square',.17);tone(460,.1,'triangle',.14,.08);}
+        else if(game.character===4){tone(640,.18,'sine',.12);tone(960,.2,'sine',.1,.12);}
+        else if(game.character===2){noise(.22,.09);tone(380,.4,'sine',.12,0,720);}
+        else if(game.character===3){tone(160,.5,'triangle',.13,0,80);}
+        else if(game.character===5){tone(700,.07,'square',.09);tone(1000,.1,'square',.1,.1);}
         else tone(180, 0.6, 'sawtooth', 0.12, 0, 900);
       }
       if(e.type==='chair-throw'){kick=.2;noise(.18,.12);tone(280,.22,'triangle',.18,0,90);}
@@ -901,8 +910,12 @@ export function createGame(canvas, onState, onError) {
       if (!g) continue;
       if(e.hp<=0){dynamic.remove(g);bodies.delete(e.id);continue;}
       g.position.set(e.x*TILE,0,e.z*TILE);
-      const figure=g.userData.character;if(figure){figure.position.y=1.22+Math.abs(Math.sin(e.walk))*.035;figure.rotation.z=Math.sin(e.walk)*.018;figure.scale.y=1-Math.abs(Math.sin(e.walk))*.012;}
+      const figure=g.userData.character;if(figure){const asleep=e.stun>0&&e.stunKind==='hypnosis';figure.position.y=asleep?.45:1.22+Math.abs(Math.sin(e.walk))*.035;figure.rotation.z=asleep?-1.4:Math.sin(e.walk)*.018;figure.scale.y=1-Math.abs(Math.sin(e.walk))*.012;}
+      g.userData.sleep.visible=e.stun>0;g.userData.sleep.position.x=reduced?0:Math.sin(clock*4)*.2;
+      g.userData.gaze.visible=game.hypnosisTarget()===e;
+      g.userData.facing.visible=game.bookTime>0&&!(e.stun>0);
       g.rotation.y = Math.atan2(camera.position.x/TILE - e.x, camera.position.z/TILE - e.z);
+      g.userData.facing.rotation.y=(e.yaw||0)-g.rotation.y;
       g.visible = e.invulnerable <= 0 || Math.sin(clock * 30) > 0;
       g.userData.health.children.forEach((pip,i)=>pip.visible=i<e.hp);
     }
@@ -921,7 +934,7 @@ export function createGame(canvas, onState, onError) {
     }
     const activeBarricades=new Set(game.barricades.map(e=>e.id));
     for(const [id,g] of barricadeBodies)if(!activeBarricades.has(id)){releaseObject(g);barricadeBodies.delete(id);}
-    for(const e of game.barricades)if(!barricadeBodies.has(e.id))makeBarricade(e);
+    for(const e of game.barricades){if(!barricadeBodies.has(e.id))makeBarricade(e);const g=barricadeBodies.get(e.id);g.scale.y=reduced?1:Math.min(1,(8-e.time)*4+.05);g.userData.flag.rotation.y=Math.atan2(camera.position.x-g.position.x,camera.position.z-g.position.z);}
     propertyRing.visible=!!game.property;
     if(game.property){propertyRing.position.x=game.property.x*TILE;propertyRing.position.z=game.property.z*TILE;propertyMaterial.opacity=.3+Math.sin(clock*7)*.14;}
     const active = new Set(game.bombs.map((b) => b.id));
@@ -1225,10 +1238,7 @@ export function createGame(canvas, onState, onError) {
   const makePickup=createPickupFactory({mesh,box,material,batchStatic,geometries,materials,textures});
   const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures,onError});
   function loop(now) {
-    steakShield.visible=game.player.picanhaTime>0&&game.phase==='playing'&&game.invasion.stage!=='arrival';
     const equipLift=reduced?0:game.equipTime/.45;
-    largeSteak.position.y=-.1-equipLift*.28+(reduced?0:Math.sin(clock*2)*.006);largeSteak.position.z=-.95+game.shieldFlash*.12;
-    for(const part of [shieldRim,shieldInner]){part.position.copy(largeSteak.position);part.position.z-=.025;part.rotation.copy(largeSteak.rotation);}
     equippedSword.visible=game.swordTime>0&&!game.heldBomb;
     const slash=reduced?0:Math.sin(Math.max(0,game.swordSwing)/.2*Math.PI);
     equippedSword.rotation.z=-slash*.9;equippedSword.position.set(.29-slash*.18,-.16+slash*.12-equipLift*.32,-.68-slash*.2);
@@ -1276,7 +1286,7 @@ export function createGame(canvas, onState, onError) {
         80 + (p.turbo > 0 ? 9 : keys.ShiftLeft || keys.ShiftRight ? 4 : 0);
       camera.fov += (fov - camera.fov) * (1 - Math.exp(-10 * dt));
       camera.updateProjectionMatrix();
-      hand.visible = game.phase === 'playing';
+      hand.visible = game.phase === 'playing'&&!specialView.equipped();
       if (game.phase === 'spectating') {
         const e = game.enemies.find((e) => e.hp > 0&&game.sameTeam(e,game.player))||game.enemies.find((e) => e.hp > 0);
         if (e) {
@@ -1351,6 +1361,7 @@ export function createGame(canvas, onState, onError) {
       }
     }
     updateAim(dt);
+    specialView.sync(clock,reduced);
     hudClock += dt;
     if (hudClock > 0.05) {
       hudClock = 0;
@@ -1421,6 +1432,7 @@ export function createGame(canvas, onState, onError) {
       dead = true;
       invaderView.dispose();
       cancelAnimationFrame(frame);
+      specialView.destroy();
       unlock();
       listeners.forEach((f) => f());
       soundtrack?.dispose();

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { SPECIALS } from '../public/game/specials.mjs';
 import { chooseTrumpObjective } from '../public/game/invasion.mjs';
 import { radialImpact } from '../public/game/impact.mjs';
 import { arrivalCamera } from '../public/game/cinematic.mjs';
@@ -173,17 +174,16 @@ test('all nine specials create a distinct gameplay state and recharge', () => {
     g.player.x = 7;
     g.player.z = 7;
     assert.equal(g.special(), true);
-    assert.equal(g.special(), c===8);
     const active = [
       g.player.picanha,
       g.player.ram,
       g.player.wind,
       g.player.vampire,
-      g.decoys.length,
-      c === 5 ? 1 : 0,
+      g.bookTime,
+      g.remoteTime,
       g.property?.time || 0,
-      g.barricades.length,
-      g.chairs.length,
+      g.flagTime,
+      g.chairReady ? 1 : 0,
     ];
     assert.ok(active[c] > 0);
     assert.equal(g.specialCharge, 0);
@@ -213,19 +213,19 @@ test('Temer vampire pact denies one lethal blow and relocates him', () => {
 test('Bolsonaro motociata damages a rival on contact', () => {
   const g=clean();g.character=1;g.player.x=7;g.player.z=7;g.enemies[0].x=7.4;g.enemies[0].z=7;const hp=g.enemies[0].hp;
   g.special();g.tick(.05);assert.equal(g.enemies[0].hp,hp);
-  g.tick(.05,{forward:true});assert.equal(g.enemies[0].hp,hp-1);assert.ok(g.events.some(e=>e.type==='ram-hit'));
+  g.tick(.05,{forward:true});assert.equal(g.enemies[0].hp,hp-2);assert.ok(g.events.some(e=>e.type==='ram-hit'));
 });
 test('Kogos property line blocks outsiders but lets them retreat', () => {
   const g=clean();g.character=6;g.player.x=7;g.player.z=7;g.special();const e=g.enemies[0];e.x=4.5;e.z=7;
   g.move(e,.4,0);assert.equal(e.x,4.5);g.move(e,-.4,0);assert.equal(e.x,4.1);
 });
 test('Boulos occupation creates three temporary solid barricades', () => {
-  const g=clean();g.character=7;g.player.x=7;g.player.z=7;g.special();
+  const g=clean();g.character=7;g.player.x=7;g.player.z=7;g.special();g.special();
   assert.equal(g.barricades.length,3);assert.ok(g.barricades.every(b=>g.map[b.z][b.x]===3));
   for(let i=0;i<161;i++)g.tick(.05);assert.equal(g.barricades.length,0);
 });
 test('Boulos occupation never creates a barricade over the player collider', () => {
-  const g=clean();g.character=7;g.player.x=6.51;g.player.z=6.51;g.player.yaw=0;g.special();
+  const g=clean();g.character=7;g.player.x=6.51;g.player.z=6.51;g.player.yaw=0;g.special();g.special();
   assert.ok(g.barricades.every(b=>Math.abs(g.player.x-b.x)>.71||Math.abs(g.player.z-b.z)>.71));
   const before=[g.player.x,g.player.z];for(let i=0;i<20;i++)g.tick(.05,{forward:true});
   assert.notDeepEqual([g.player.x,g.player.z],before);
@@ -233,7 +233,7 @@ test('Boulos occupation never creates a barricade over the player collider', () 
 test('Datena chair flies forward, hits once and stuns the target', () => {
   const g=clean();g.character=8;g.player.x=5;g.player.z=5;g.player.yaw=-Math.PI/2;g.enemies[0].x=7;g.enemies[0].z=5;const hp=g.enemies[0].hp;
   g.special();assert.equal(g.chairReady,true);assert.equal(g.chairs.length,0);g.primaryPress();for(let i=0;i<8;i++)g.tick(.05);
-  assert.equal(g.enemies[0].hp,hp-1);assert.ok(g.enemies[0].invulnerable>1);assert.equal(g.chairs.length,0);
+  assert.equal(g.enemies[0].hp,hp-2);assert.ok(g.enemies[0].stun>0);assert.equal(g.chairs.length,0);
 });
 test('pause freezes all timers and movement', () => {
   const g = clean();
@@ -721,5 +721,51 @@ test('Putin lethal fire also eliminates bots and ordinary bombs still remove one
 test('picanha protection blocks even lethal missiles', () => {
   const g=clean();Object.assign(g.player,{x:7,z:7,picanhaTime:4,invulnerable:0});
   radialImpact(g,7,7,1.75,'missile');assert.equal(g.player.hp,3);
+});
+test('Marcal requires reciprocal gaze, range and an unobstructed sightline', () => {
+  for(const reason of ['valid','away','aim-away','wall','far','ally']) {
+    const g=clean();g.character=4;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});const e=g.enemies[0];Object.assign(e,{x:7,z:5,yaw:Math.PI/2});g.special();
+    if(reason==='away')e.yaw=-Math.PI/2;if(reason==='aim-away')g.player.yaw=0;if(reason==='wall')g.map[5][6]=1;if(reason==='far')e.x=11;
+    if(reason==='ally'){g.teamMode=true;g.player.team='left';e.team='left';}
+    assert.equal(!!g.hypnosisTarget(),reason==='valid');assert.equal(g.special(),reason==='valid');assert.equal(e.stun||0,reason==='valid'?3:0);
+    assert.equal(g.bookTime,reason==='valid'?0:10);assert.equal(g.specialCharge,0);
+  }
+});
+test('hypnosis freezes bot movement and attacks for three seconds but bombs can hurt it', () => {
+  const g=clean();g.character=4;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});const e=g.enemies[0];Object.assign(e,{x:7,z:5,yaw:Math.PI/2,speed:1,cd:0});g.special();g.special();
+  for(let i=0;i<59;i++)g.tick(.05);assert.deepEqual([e.x,e.z],[7,5]);assert.equal(g.bombs.length,0);assert.ok(e.stun>0);
+  const hp=e.hp;g.hurtEnemy(e,'player');assert.equal(e.hp,hp-1);
+  for(let i=0;i<3;i++)g.tick(.05);assert.equal(e.stun,0);assert.ok(g.bombs.length>0||e.x!==7||e.z!==5);
+});
+test('Dilma manually releases two-heart gust and pushes a visible bomb forward', () => {
+  const g=clean();g.character=2;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});const e=g.enemies[0];Object.assign(e,{x:8,z:5,hp:3});
+  const bomb={id:123,x:6,z:5,y:.23,fuse:3,owner:999,range:1};g.bombs.push(bomb);g.special();assert.equal(g.special(),true);assert.equal(g.player.wind,0);assert.ok(bomb.vx>0&&bomb.moving);
+  g.tick(.05);assert.equal(e.hp,1);
+});
+test('Temer can exchange the pact for a two-heart bite and recover one heart', () => {
+  const g=clean();g.character=3;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2,hp:1});Object.assign(g.enemies[0],{x:7,z:5,hp:3});g.special();assert.equal(g.special(),true);
+  assert.equal(g.enemies[0].hp,1);assert.equal(g.player.hp,2);assert.equal(g.player.vampire,0);assert.equal(g.specialEffects[0].kind,'bats');
+});
+test('Temer cannot bite through a wall and keeps the unused pact', () => {
+  const g=clean();g.character=3;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});Object.assign(g.enemies[0],{x:7,z:5});g.map[5][6]=1;g.special();assert.equal(g.special(),false);assert.equal(g.player.vampire,10);
+});
+test('Renan radio preserves empty attempts and detonates only owned bombs for two hearts', () => {
+  const g=clean();g.character=5;Object.assign(g.player,{x:5,z:5});Object.assign(g.enemies[0],{x:7,z:5,hp:3});g.special();assert.equal(g.special(),false);assert.equal(g.remoteTime,12);
+  const own={id:123,x:7,z:5,y:.23,fuse:3,owner:'player',range:1},other={id:124,x:12,z:12,y:.23,fuse:3,owner:999,range:1};g.bombs.push(own,other);assert.equal(g.special(),true);assert.equal(other.fuse,3);assert.equal(own.damage,2);
+  for(let i=0;i<7;i++)g.tick(.05);assert.equal(g.enemies[0].hp,1);assert.equal(g.remoteTime,0);
+});
+test('Boulos previews valid ground, excludes occupied cells and preserves blocked attempts', () => {
+  const g=clean();g.character=7;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});g.special();assert.equal(g.barricades.length,0);
+  Object.assign(g.enemies[0],{x:7,z:5});g.map[4][7]=1;g.map[6][7]=2;assert.ok(g.occupationPreview().every(s=>!s.valid));assert.equal(g.special(),false);assert.equal(g.flagTime,10);
+  g.map[4][7]=0;assert.equal(g.special(),true);assert.equal(g.barricades.length,1);assert.notEqual(g.map[5][7],3);
+});
+test('every character can collect their own periodic special item', () => {
+  for(let c=0;c<9;c++){const g=clean();g.character=c;g.invasion.startsAt=999;g.elapsed=g.nextSpecialItem;g.nextStorm=999;g.tick(.05);const item=g.items.find(i=>i.type===SPECIALS[c].type);assert.ok(item);g.player.x=item.x;g.player.z=item.z;item.wait=0;g.tick(.05);assert.equal(g.specialItems,1);}
+});
+test('equipped second actions pause and cannot be used while cooking a bomb', () => {
+  for(const c of [1,2,3,4,5,7,8]){const g=clean();g.character=c;g.special();g.phase='paused';const before=JSON.stringify(g.snapshot());assert.equal(g.special(),false);g.tick(.05);assert.equal(JSON.stringify(g.snapshot()),before);g.phase='playing';g.beginHold();assert.equal(g.special(),false);}
+});
+test('motor boost moves forward by itself and respects solid walls', () => {
+  const g=clean();g.character=1;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});g.map[5][7]=1;g.special();g.special();for(let i=0;i<14;i++)g.tick(.05);assert.ok(g.player.x>5.5&&g.player.x<6.3);assert.equal(g.dashTime,0);
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

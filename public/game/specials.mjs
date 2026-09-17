@@ -2,10 +2,10 @@
 export const SPECIAL_DAMAGE = 2;
 export const SPECIALS = [
   {name:'Fortaleza de picanha',item:'Picanha',asset:'steak',type:3,desc:'E ergue o escudo. Proteção total por 4 segundos.'},
-  {name:'Motociata turbo',item:'Guidão',asset:'handlebar',type:6,desc:'E monta por 6s. E de novo dá arrancada; contato tira 2 corações.'},
+  {name:'Pronunciamento tóxico',item:'Microfone',asset:'microphone',type:6,desc:'E faz o discurso global. Névoa verde e antídotos limitados; uma dose vira jacaré!'},
   {name:'Pote de vento',item:'Pote de vento',asset:'windjar',type:7,desc:'E estoca por 8s. E solta uma rajada de 2 corações e empurra bombas.'},
-  {name:'Cálice do vampiro',item:'Cálice',asset:'goblet',type:8,desc:'E protege de um golpe fatal por 10s. E troca o pacto por uma mordida de 2 corações.'},
-  {name:'Exorcismo da carteira',item:'Carteira azul',asset:'workbook',type:9,desc:'E equipa. Mire em quem olha para você e aperte E: hipnose por 3 segundos.'},
+  {name:'Voo do vampiro',item:'Cálice',asset:'goblet',type:8,desc:'E transforma: voe invulnerável por 10s. Q troca o rival, E mergulha e drena 2 corações.'},
+  {name:'Exorcismo da carteira',item:'Carteira azul',asset:'workbook',type:9,desc:'E equipa. Mire em quem olha para você e aperte E: espírito sobe e o rival cai por 5 segundos.'},
   {name:'Missão: controle remoto',item:'Rádio detonador',asset:'radio',type:10,desc:'E equipa por 12s. Plante bombas e aperte E para detoná-las com dano de 2 corações.'},
   {name:'Lâmina do Kogos',item:'Lâmina',asset:'sword',type:5,desc:'E equipa por 8s. Clique para golpes rápidos de 2 corações.'},
   {name:'Bandeira da ocupação',item:'Bandeira',asset:'flag',type:11,desc:'E equipa. Mire no chão livre e E ergue barricadas por 8 segundos.'},
@@ -21,8 +21,8 @@ export function faces(from, to, cosine = .55) {
 }
 
 export function equipment(game) {
-  const times=[game.player.picanhaTime,game.player.ram,game.player.wind,game.player.vampire,game.bookTime,game.remoteTime,game.swordTime,game.flagTime,game.chairReady?1:0];
+  const times=[game.player.picanhaTime,game.speechTime||game.poison?.time||0,game.player.wind,game.player.vampire,game.bookTime,game.remoteTime,game.swordTime,game.flagTime,game.chairReady?1:0];
   const time=times[game.character]||0,meta=SPECIALS[game.character];
-  const actions=['PROTEÇÃO TOTAL','E · ARRANCADA','E · SOLTAR RAJADA','E · MORDIDA / AGUARDE · REVIVER',game.hypnosisTarget()?'OLHOU! E · HIPNOTIZAR':'MIRE EM QUEM OLHA PARA VOCÊ','E · DETONAR SUAS BOMBAS','CLIQUE · GOLPEAR','E · FINCAR BANDEIRA','CLIQUE OU E · ARREMESSAR'];
-  return {time,name:meta.name,icon:itemIcon(meta.asset),action:time>0?actions[game.character]:'E · EQUIPAR',ready:time>0&&![0,6].includes(game.character)};
+  const actions=['PROTEÇÃO TOTAL','VOCÊ É IMUNE À NÉVOA','E · SOLTAR RAJADA','Q · TROCAR ALVO / E · MERGULHAR',game.hypnosisTarget()?'OLHOU! E · HIPNOTIZAR':'MIRE EM QUEM OLHA PARA VOCÊ','E · DETONAR SUAS BOMBAS','CLIQUE · GOLPEAR','E · FINCAR BANDEIRA','CLIQUE OU E · ARREMESSAR'];
+  return {time,name:meta.name,icon:itemIcon(meta.asset),action:time>0?actions[game.character]:'E · EQUIPAR',ready:time>0&&![0,1,6].includes(game.character)};
 }

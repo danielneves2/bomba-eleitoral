@@ -154,6 +154,8 @@ const initial = {
   windTime: 0,
   vampireTime: 0,
   ramTime: 0,
+  speechTime:0,poisonTime:0,antidotes:0,antidoteTotal:0,flying:false,diving:false,flightHeight:0,vampireTarget:null as number|null,
+  vampireTargets:[] as Array<{id:number;skin:number;hp:number}>,draining:[] as Array<{id:number;skin:number;hp:number;time:number}>,
   propertyTime: 0,
   decoys: 0,
   barricades: 0,
@@ -167,6 +169,8 @@ type GameApi = {
   resume: () => void;
   menu: () => void;
   special: () => void;
+  diveTarget: (id:number) => void;
+  cycleTarget: () => void;
   throwBomb: () => void;
   plantBomb: () => void;
   quote: () => void;
@@ -207,7 +211,7 @@ export default function Home() {
     let disposed = false;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/game/boot.js?v=19';
+    script.src = '/game/boot.js?v=20';
     script.onload = async () => {
       if (disposed || !canvas.current) return;
       try {
@@ -486,7 +490,7 @@ export default function Home() {
                   {state.picanhaTime > 0 && <span className="special-effect picanha-effect" aria-label="Invulnerável"><img src="/item-steak-pixel-v11.png" width="28" height="28" alt="Picanha"/><small>{state.picanhaTime.toFixed(1)}s</small></span>}
                   {state.swordTime > 0 && <span className="special-effect"><img src="/item-sword-pixel-v11.png" width="28" height="28" alt="Espada"/><small>{state.swordTime.toFixed(1)}s · CLIQUE PARA GOLPEAR</small></span>}
                   {state.windTime > 0 && <span className="special-effect wind-effect" aria-label={`Vento estocado por ${Math.ceil(state.windTime)} segundos`}>VENTO <small>{Math.ceil(state.windTime)}s</small></span>}
-                  {state.vampireTime > 0 && <span className="special-effect vampire-effect" aria-label={`Pacto imortal por ${Math.ceil(state.vampireTime)} segundos`}>🦇<small>{Math.ceil(state.vampireTime)}s</small></span>}
+                  {state.vampireTime > 0 && <span className="special-effect vampire-effect" aria-label={`Voo invulnerável por ${Math.ceil(state.vampireTime)} segundos`}>🦇<small>{Math.ceil(state.vampireTime)}s</small></span>}
                   {state.ramTime > 0 && <span className="special-effect ram-effect" aria-label={`Motociata por ${Math.ceil(state.ramTime)} segundos`}>MOTO <small>{Math.ceil(state.ramTime)}s</small></span>}
                   {state.propertyTime > 0 && <span className="special-effect property-effect" aria-label={`Propriedade privada por ${Math.ceil(state.propertyTime)} segundos`}>ÁREA <small>{Math.ceil(state.propertyTime)}s</small></span>}
                   {state.decoys > 0 && <span className="special-effect decoy-effect" aria-label={`${state.decoys} ilusões ativas`}>CÓPIAS <small>×{state.decoys}</small></span>}
@@ -565,11 +569,11 @@ export default function Home() {
             <button
               className={`special-button ${state.special >= 1 ? 'charged' : ''}`}
               onClick={() => api.current?.special()}
-              disabled={state.special < 1 || !playing || state.countdown > 0 || state.invasion.stage==='arrival'}
+              disabled={state.special < 1 || !playing || state.countdown > 0 || state.invasion.stage==='arrival'||state.speechTime>0||state.diving||(selected===1&&state.poisonTime>0)}
             >
               <Zap />
               <span>
-                {state.equipment.ready ? (['','Arrancada','Soltar o vento','Mordida vampírica','Exorcizar carteira','Detonar bombas','','Fincar bandeira','Arremessar cadeira'][selected]) : state.specialItems>0 ? SPECIALS[selected].item+' coletado' : ch.special}
+                {state.equipment.ready ? (['','','Soltar o vento','Mergulho vampírico','Exorcizar carteira','Detonar bombas','','Fincar bandeira','Arremessar cadeira'][selected]) : state.specialItems>0 ? SPECIALS[selected].item+' coletado' : ch.special}
                 <small>
                   {state.equipment.ready?'E · USAR ITEM EQUIPADO':state.specialItems>0 ? `${state.specialItems} ITEM${state.specialItems>1?'S':''} · E PARA USAR` : state.special >= 1
                     ? 'ESPECIAL PRONTO'
@@ -669,6 +673,10 @@ export default function Home() {
         </div>
       )}
       {playing&&state.picanhaTime>0&&<div className="picanha-aura" aria-hidden="true"><span>✦</span><span>✦</span><span>✦</span><span>✦</span></div>}
+      {!menu&&state.poisonTime>0&&<><div className="poison-haze" aria-hidden="true"/><div className="poison-status" role="status"><b>NÉVOA VERDE · {Math.ceil(state.poisonTime)}s</b><span>{state.antidotes}/{state.antidoteTotal} ANTÍDOTOS · BOLSONARO IMUNE</span><small>UMA DOSE SURPRESA TRANSFORMA EM JACARÉ</small></div></>}
+      {playing&&state.speechTime>0&&<section className="speech-caption" aria-label="Pronunciamento global"><small>ESPECIAL GLOBAL · CENA SATÍRICA</small><strong>“NÃO VAI TER VACINA!”</strong><span>Prepare-se para a corrida pelo antídoto.</span></section>}
+      {playing&&state.flying&&state.invasion.stage!=='arrival'&&<section className="vampire-picker" aria-label="Escolher rival para morder"><header><b>VOO INVULNERÁVEL · {Math.ceil(state.vampireTime)}s</b><span>WASD · VOAR / ESPAÇO ↑ CTRL ↓ / Q · ALVO / E · MORDER</span></header><div className="vampire-targets">{state.vampireTargets.map(a=><button key={a.id} disabled={state.diving} aria-label={`Morder ${cast[a.skin].name}`} aria-pressed={state.vampireTarget===a.id} onClick={()=>api.current?.diveTarget(a.id)}><div className={`portrait portrait-${a.skin}`} aria-hidden="true"/><span>{cast[a.skin].name}</span><meter min="0" max="3" value={Math.min(3,a.hp)} aria-label={`${cast[a.skin].name}: ${a.hp.toFixed(1)} vidas`}/></button>)}</div><div className="flight-height"><button aria-label="Subir voando" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);api.current?.key('Space',true);}} onPointerUp={()=>api.current?.key('Space',false)} onPointerCancel={()=>api.current?.key('Space',false)}>↑ SUBIR</button><button aria-label="Descer voando" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);api.current?.key('ControlLeft',true);}} onPointerUp={()=>api.current?.key('ControlLeft',false)} onPointerCancel={()=>api.current?.key('ControlLeft',false)}>↓ DESCER</button></div></section>}
+      {playing&&state.draining.length>0&&<div className="drain-status" role="status">{state.draining.map(d=><div key={d.id}><b>🦇 {cast[d.skin].name} · DRENANDO</b><meter min="0" max="3" value={Math.min(3,d.hp)}/><span>{d.hp.toFixed(1)} ♥</span></div>)}</div>}
       {playing&&state.hypnotized.length>0&&<div className="hypnosis-status" role="status">{state.hypnotized.map(a=><span key={a.id}>💫 {a.name} · {a.time.toFixed(1)}s</span>)}<small>HIPNOTIZADO · APROVEITE PARA LANÇAR A BOMBA</small></div>}
       {playing && state.holding && (
         <div className={`cook-hud ${state.fuse < 1 ? 'critical' : ''}`}>

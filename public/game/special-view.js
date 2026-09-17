@@ -1,5 +1,5 @@
 import * as T from '../vendor/three.module.js';
-import {SPECIALS, equipment} from './specials.mjs?v=19';
+import {SPECIALS, equipment} from './specials.mjs?v=20';
 
 export function createSpecialView({camera,scene,game,box,mesh,geometries,materials,textures}) {
   const root=new T.Group();camera.add(root);
@@ -71,7 +71,7 @@ export function createSpecialView({camera,scene,game,box,mesh,geometries,materia
   const tiles=Array.from({length:3},()=>{const m=mesh(effectsRoot,plane,previewMats[1]);m.rotation.x=-Math.PI/2;m.scale.set(2.4,2.4,1);return m;});
   return {
     sync(time,reduced){
-      const active=game.phase==='playing'&&game.countdown===0&&game.invasion.stage!=='arrival';root.visible=active;
+      const active=game.phase==='playing'&&game.countdown===0&&game.invasion.stage!=='arrival'&&!game.speechTime&&!game.flight;root.visible=active;
       const eq=equipment(game),name=SPECIALS[game.character].asset,aspect=camera.aspect,compact=Math.min(1,aspect/.95),lift=reduced?0:game.equipTime/.45,cast=reduced?0:Math.sin(Math.min(1,game.actionAnim/.65)*Math.PI);
       for(const [id,g] of held){g.visible=id===name&&(eq.time>0||game.actionAnim>0)&&!game.heldBomb;if(!g.visible)continue;
         g.scale.setScalar(compact);g.position.set((id==='handlebar'?0:.31)*compact,-.2-lift*.45+cast*.15,-.75);
@@ -86,7 +86,7 @@ export function createSpecialView({camera,scene,game,box,mesh,geometries,materia
       const swarm=game.specialEffects.find(e=>e.kind==='bats');bats.forEach((g,i)=>{g.visible=!!swarm;if(!swarm)return;const f=1-swarm.time/swarm.max;g.position.set((swarm.x+(swarm.tx-swarm.x)*f)*2.7+Math.sin(i*2+time*8)*.4,1.5+Math.cos(i+time*6)*.4,(swarm.z+(swarm.tz-swarm.z)*f)*2.7);g.rotation.y=camera.rotation.y;g.userData.wings.forEach((w,j)=>w.rotation.z=(j?1:-1)*Math.sin(time*24+i)*.7);});
       const spots=game.flagTime>0&&active?game.occupationPreview():[];tiles.forEach((m,i)=>{const p=spots[i];m.visible=!!p;if(p){m.position.set(p.x*2.7,.065,p.z*2.7);m.material=previewMats[p.valid?1:0];}});
     },
-    equipped(){return [1,2,3,4,5,7].includes(game.character)&&(equipment(game).time>0||game.actionAnim>0)&&!game.heldBomb;},
+    equipped(){return [2,3,4,5,7].includes(game.character)&&(equipment(game).time>0||game.actionAnim>0)&&!game.heldBomb;},
     destroy(){camera.remove(root);scene.remove(effectsRoot);},
   };
 }

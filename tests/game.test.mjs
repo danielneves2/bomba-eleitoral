@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { SPECIALS } from '../public/game/specials.mjs';
+import {releasePoison,antidoteGoal} from '../public/game/global-specials.mjs';
 import { chooseTrumpObjective } from '../public/game/invasion.mjs';
 import { radialImpact } from '../public/game/impact.mjs';
 import { arrivalCamera } from '../public/game/cinematic.mjs';
@@ -176,7 +177,7 @@ test('all nine specials create a distinct gameplay state and recharge', () => {
     assert.equal(g.special(), true);
     const active = [
       g.player.picanha,
-      g.player.ram,
+      g.speechTime,
       g.player.wind,
       g.player.vampire,
       g.bookTime,
@@ -188,7 +189,7 @@ test('all nine specials create a distinct gameplay state and recharge', () => {
     assert.ok(active[c] > 0);
     assert.equal(g.specialCharge, 0);
     g.tick(0.05);
-    assert.ok(g.specialCharge > 0);
+    if(c!==1)assert.ok(g.specialCharge > 0);
   }
 });
 test('Lula picanha grants four seconds of immunity including held explosions', () => {
@@ -204,16 +205,16 @@ test('Dilma stores one blast and returns a directional wind attack', () => {
   g.fires=[{id:123,x:7,z:7,life:.7,owner:'invader'}];g.tick(.05);
   assert.equal(g.player.hp,3);assert.equal(g.player.wind,0);assert.ok(g.fires.some(f=>f.owner==='special'));
 });
-test('Temer vampire pact denies one lethal blow and relocates him', () => {
+test('Temer is invulnerable throughout flight including lethal impacts', () => {
   const g=clean();g.character=3;g.player.x=7;g.player.z=7;g.special();g.player.invulnerable=0;
   g.hurtPlayer(3,{unblockable:true});
-  assert.equal(g.player.hp,1);assert.equal(g.player.vampire,0);assert.ok(g.player.invulnerable>0);
-  assert.ok(g.events.some(e=>e.type==='vampire-revive'));
+  assert.equal(g.player.hp,3);assert.equal(g.player.vampire,10);assert.ok(g.flight);
+  assert.ok(g.events.some(e=>e.type==='vampire-transform'));
 });
-test('Bolsonaro motociata damages a rival on contact', () => {
+test('Bolsonaro speech freezes actors and does not cause old ram contact damage', () => {
   const g=clean();g.character=1;g.player.x=7;g.player.z=7;g.enemies[0].x=7.4;g.enemies[0].z=7;const hp=g.enemies[0].hp;
   g.special();g.tick(.05);assert.equal(g.enemies[0].hp,hp);
-  g.tick(.05,{forward:true});assert.equal(g.enemies[0].hp,hp-2);assert.ok(g.events.some(e=>e.type==='ram-hit'));
+  g.tick(.05,{forward:true});assert.equal(g.enemies[0].hp,hp);assert.equal(g.player.x,7);assert.ok(g.speechTime>0);
 });
 test('Kogos property line blocks outsiders but lets them retreat', () => {
   const g=clean();g.character=6;g.player.x=7;g.player.z=7;g.special();const e=g.enemies[0];e.x=4.5;e.z=7;
@@ -727,13 +728,13 @@ test('Marcal requires reciprocal gaze, range and an unobstructed sightline', () 
     const g=clean();g.character=4;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});const e=g.enemies[0];Object.assign(e,{x:7,z:5,yaw:Math.PI/2});g.special();
     if(reason==='away')e.yaw=-Math.PI/2;if(reason==='aim-away')g.player.yaw=0;if(reason==='wall')g.map[5][6]=1;if(reason==='far')e.x=11;
     if(reason==='ally'){g.teamMode=true;g.player.team='left';e.team='left';}
-    assert.equal(!!g.hypnosisTarget(),reason==='valid');assert.equal(g.special(),reason==='valid');assert.equal(e.stun||0,reason==='valid'?3:0);
+    assert.equal(!!g.hypnosisTarget(),reason==='valid');assert.equal(g.special(),reason==='valid');assert.equal(e.stun||0,reason==='valid'?5:0);
     assert.equal(g.bookTime,reason==='valid'?0:10);assert.equal(g.specialCharge,0);
   }
 });
-test('hypnosis freezes bot movement and attacks for three seconds but bombs can hurt it', () => {
+test('hypnosis freezes bot movement and attacks for five seconds but bombs can hurt it', () => {
   const g=clean();g.character=4;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});const e=g.enemies[0];Object.assign(e,{x:7,z:5,yaw:Math.PI/2,speed:1,cd:0});g.special();g.special();
-  for(let i=0;i<59;i++)g.tick(.05);assert.deepEqual([e.x,e.z],[7,5]);assert.equal(g.bombs.length,0);assert.ok(e.stun>0);
+  g.invasion.startsAt=999;for(let i=0;i<99;i++)g.tick(.05);assert.deepEqual([e.x,e.z],[7,5]);assert.equal(g.bombs.length,0);assert.ok(e.stun>0);assert.ok(g.specialEffects.some(s=>s.kind==='spirit'));
   const hp=e.hp;g.hurtEnemy(e,'player');assert.equal(e.hp,hp-1);
   for(let i=0;i<3;i++)g.tick(.05);assert.equal(e.stun,0);assert.ok(g.bombs.length>0||e.x!==7||e.z!==5);
 });
@@ -742,12 +743,13 @@ test('Dilma manually releases two-heart gust and pushes a visible bomb forward',
   const bomb={id:123,x:6,z:5,y:.23,fuse:3,owner:999,range:1};g.bombs.push(bomb);g.special();assert.equal(g.special(),true);assert.equal(g.player.wind,0);assert.ok(bomb.vx>0&&bomb.moving);
   g.tick(.05);assert.equal(e.hp,1);
 });
-test('Temer can exchange the pact for a two-heart bite and recover one heart', () => {
+test('Temer dives then drains two hearts gradually and heals one', () => {
   const g=clean();g.character=3;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2,hp:1});Object.assign(g.enemies[0],{x:7,z:5,hp:3});g.special();assert.equal(g.special(),true);
-  assert.equal(g.enemies[0].hp,1);assert.equal(g.player.hp,2);assert.equal(g.player.vampire,0);assert.equal(g.specialEffects[0].kind,'bats');
+  g.invasion.startsAt=999;for(let i=0;i<20;i++)g.tick(.05);assert.ok(g.enemies[0].hp<3&&g.enemies[0].hp>2.5);assert.equal(g.player.vampire,0);
+  for(let i=0;i<48;i++)g.tick(.05);assert.ok(Math.abs(g.enemies[0].hp-1)<1e-6);assert.ok(Math.abs(g.player.hp-2)<1e-6);assert.equal(g.drains.length,0);
 });
-test('Temer cannot bite through a wall and keeps the unused pact', () => {
-  const g=clean();g.character=3;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});Object.assign(g.enemies[0],{x:7,z:5});g.map[5][6]=1;g.special();assert.equal(g.special(),false);assert.equal(g.player.vampire,10);
+test('Temer can fly over a wall but lands on a free arena tile', () => {
+  const g=clean();g.character=3;g.invasion.startsAt=999;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});Object.assign(g.enemies[0],{x:7,z:5});g.map[5][6]=1;g.special();assert.equal(g.special(),true);for(let i=0;i<17;i++)g.tick(.05);assert.equal(g.flight,null);assert.equal(g.solid(g.player.x,g.player.z),false);
 });
 test('Renan radio preserves empty attempts and detonates only owned bombs for two hearts', () => {
   const g=clean();g.character=5;Object.assign(g.player,{x:5,z:5});Object.assign(g.enemies[0],{x:7,z:5,hp:3});g.special();assert.equal(g.special(),false);assert.equal(g.remoteTime,12);
@@ -763,9 +765,49 @@ test('every character can collect their own periodic special item', () => {
   for(let c=0;c<9;c++){const g=clean();g.character=c;g.invasion.startsAt=999;g.elapsed=g.nextSpecialItem;g.nextStorm=999;g.tick(.05);const item=g.items.find(i=>i.type===SPECIALS[c].type);assert.ok(item);g.player.x=item.x;g.player.z=item.z;item.wait=0;g.tick(.05);assert.equal(g.specialItems,1);}
 });
 test('equipped second actions pause and cannot be used while cooking a bomb', () => {
-  for(const c of [1,2,3,4,5,7,8]){const g=clean();g.character=c;g.special();g.phase='paused';const before=JSON.stringify(g.snapshot());assert.equal(g.special(),false);g.tick(.05);assert.equal(JSON.stringify(g.snapshot()),before);g.phase='playing';g.beginHold();assert.equal(g.special(),false);}
+  for(const c of [1,2,3,4,5,7,8]){const g=clean();g.character=c;g.special();g.phase='paused';const before=JSON.stringify(g.snapshot());assert.equal(g.special(),false);g.tick(.05);assert.equal(JSON.stringify(g.snapshot()),before);g.phase='playing';if([1,3].includes(c)){assert.equal(g.beginHold(),false);}else{g.beginHold();assert.equal(g.special(),false);}}
 });
-test('motor boost moves forward by itself and respects solid walls', () => {
-  const g=clean();g.character=1;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});g.map[5][7]=1;g.special();g.special();for(let i=0;i<14;i++)g.tick(.05);assert.ok(g.player.x>5.5&&g.player.x<6.3);assert.equal(g.dashTime,0);
+test('flight crosses boxes, has altitude controls, and respects arena bounds', () => {
+  const g=clean();g.character=3;Object.assign(g.player,{x:5,z:5,yaw:-Math.PI/2});g.map[5][6]=1;g.special();for(let i=0;i<30;i++)g.tick(.05,{forward:true,ascend:true});assert.ok(g.player.x>6.5);assert.ok(g.flight.height>5.8);g.move(g.player,100,100);assert.equal(g.player.x,13.2);assert.equal(g.player.z,13.2);
+});
+test('global speech freezes bombs and invasion scheduling for three seconds',()=>{
+  const g=clean();g.character=1;g.invasion.startsAt=999;const b=g.addBomb(5,5,'player',2,2);g.special();const x=g.player.x;
+  for(let i=0;i<59;i++)g.tick(.05,{forward:true});assert.equal(g.elapsed,0);assert.equal(b.fuse,2);assert.equal(g.player.x,x);assert.ok(g.speechTime>0);
+  for(let i=0;i<2;i++)g.tick(.05);assert.equal(g.speechTime,0);assert.ok(g.poison);assert.equal(g.special(),false);
+});
+test('eight survivors receive six distinct reachable doses and exactly one curse',()=>{
+  for(let seed=1;seed<=30;seed++){
+    const g=clean();g.random=rng(seed);g.character=1;
+    g.enemies=Array.from({length:7},(_,i)=>({...g.enemies[0],id:i+10,skin:i===1?2:i,x:2+i,z:7,hp:3}));releasePoison(g);
+    assert.equal(g.syringes.length,6);assert.equal(new Set(g.syringes.map(s=>`${s.x},${s.z}`)).size,6);assert.equal(g.syringes.filter(s=>s.cursed).length,1);
+    assert.ok(g.syringes.every(s=>!g.solid(s.x,s.z)&&g.enemies.some(e=>Math.hypot(e.x-s.x,e.z-s.z)<.5||g.path(e,[s.x,s.z],new Set()))));
+  }
+});
+test('antidote is unavailable while falling and is consumed once by one rival',()=>{
+  const g=clean();g.character=1;g.invasion.startsAt=999;g.nextStorm=999;
+  g.enemies=[{...g.enemies[0],id:1,x:7,z:7,hp:3},{...g.enemies[0],id:2,x:7,z:7,hp:3},{...g.enemies[0],id:3,x:13,z:13,hp:3}];releasePoison(g);
+  g.syringes=[{id:77,x:7,z:7,fall:2,cursed:true}];for(let i=0;i<38;i++)g.tick(.05);assert.equal(g.syringes.length,1);assert.ok(!g.enemies[0].alligator);
+  for(let i=0;i<4;i++)g.tick(.05);assert.equal(g.syringes.length,0);assert.ok(g.enemies[0].alligator);assert.ok(!g.enemies[1].alligator);assert.equal(g.enemies[0].antidote,g.poison.id);
+});
+test('poison kills an untreated three-heart rival but immunity and one heart save others',()=>{
+  const g=clean();g.character=1;g.invasion.startsAt=999;g.nextStorm=999;
+  g.enemies=Array.from({length:3},(_,i)=>({...g.enemies[0],id:i+1,x:7+i*2,z:7,hp:3}));releasePoison(g);g.syringes=[];g.enemies[1].antidote=g.poison.id;
+  for(let i=0;i<165;i++)g.tick(.05);assert.equal(g.enemies[0].hp,2);assert.equal(g.enemies[1].hp,3);assert.equal(g.player.hp,3);
+  g.items.push({id:99,x:g.enemies[2].x,z:7,type:0,wait:0});g.tick(.05);assert.equal(g.enemies[2].hp,3);
+  for(let i=0;i<100;i++)g.tick(.05);assert.equal(g.enemies[0].hp,0);assert.equal(g.enemies[1].hp,3);assert.equal(g.enemies[2].hp,1);assert.equal(g.player.hp,3);
+});
+test('bots seek antidotes, cured bots stop seeking, allies are not poisoned',()=>{
+  const g=clean();g.character=1;g.teamMode=true;g.player.team='right';g.enemies=[{...g.enemies[0],id:1,team:'right'},{...g.enemies[0],id:2,team:'left'},{...g.enemies[0],id:3,team:'left'}];releasePoison(g);
+  assert.equal(g.syringes.length,1);assert.equal(antidoteGoal(g,g.enemies[0]),null);assert.ok(antidoteGoal(g,g.enemies[1]));g.enemies[1].antidote=g.poison.id;assert.equal(antidoteGoal(g,g.enemies[1]),null);
+});
+test('flight target selection rejects allies and dead rivals and recovers if target dies',()=>{
+  const g=clean();g.character=3;g.invasion.startsAt=999;g.teamMode=true;g.player.team='left';g.enemies=[{...g.enemies[0],id:1,team:'left'},{...g.enemies[0],id:2,team:'right'},{...g.enemies[0],id:3,team:'right'}];g.special();
+  assert.equal(g.vampireTarget,2);assert.equal(g.diveTarget(1),false);g.cycleTarget();assert.equal(g.vampireTarget,3);assert.equal(g.diveTarget(3),true);g.enemies[2].hp=0;g.tick(.05);assert.ok(g.flight);assert.equal(g.flight.dive,null);assert.equal(g.vampireTarget,2);
+});
+test('pausing freezes poison, falling antidotes and gradual bites; reset clears effects',()=>{
+  const g=clean();g.character=1;releasePoison(g);g.drains=[{target:g.enemies[0],time:2.4,remaining:2}];g.phase='paused';const before=JSON.stringify([g.poison,g.syringes,g.drains]);g.tick(.05);assert.equal(JSON.stringify([g.poison,g.syringes,g.drains]),before);g.reset(0);assert.equal(g.poison,null);assert.equal(g.drains.length,0);assert.equal(g.syringes.length,0);assert.ok(g.enemies.every(e=>!e.alligator));
+});
+test('flight expires over a box without trapping the player and Bukele cannot capture it',()=>{
+  const g=clean();g.character=3;g.special();Object.assign(g.player,{x:7,z:7});g.map[7][7]=2;g.invasion.kind='bukele';g.invasion.stage='active';Object.assign(g.invasion.actor,{x:7,z:7});g.invasion.tick(g,.05);assert.equal(g.invasion.cages.length,0);g.invasion.stage='done';g.player.vampire=.01;g.tick(.05);assert.equal(g.flight,null);assert.equal(g.solid(g.player.x,g.player.z),false);
 });
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

@@ -1,14 +1,15 @@
 import * as T from '../vendor/three.module.js';
-import {createSpecialView} from './special-view.js?v=19';
+import {createSpecialView} from './special-view.js?v=20';
+import {createGlobalSpecialView} from './global-special-view.js?v=20';
 import {createArenaWorlds} from './arena-worlds.js?v=16';
 import {prepareAttract,advanceAttract} from './attract.mjs?v=16';
-import { createPixelAssets } from './pixel-assets.js?v=19';
+import { createPixelAssets } from './pixel-assets.js?v=20';
 import { createInvaderView } from './invaders-v7.js?v=18';
 import { createSoundtrack } from './soundtrack.js?v=16';
 import { arrivalCamera } from './cinematic.mjs?v=15';
-import { createPickupFactory } from './pickups.js?v=19';
+import { createPickupFactory } from './pickups.js?v=20';
 import { loadCharacterAtlas } from './characters.js?v=4';
-import { Match, SIZE, cell, NAMES, advanceFrame, arenaRoll } from './core.mjs?v=19';
+import { Match, SIZE, cell, NAMES, advanceFrame, arenaRoll } from './core.mjs?v=20';
 const TILE = 2.7,
   COLORS = [
     0xef4269, 0x79bc39, 0xe47b36, 0x9561de, 0x66b5ff, 0xe9b54d, 0xeded9d,
@@ -373,7 +374,7 @@ export function createGame(canvas, onState, onError) {
     const ally=game.sameTeam(e,game.player);
     const name=label((game.teamMode?(ally?'ALIADO · ':'RIVAL · '):'')+NAMES[e.skin].toUpperCase(),game.teamMode?(ally?'#82e9ff':'#ff8e72'):'#fff0ce',game.teamMode?2.5:1.8,.25);name.position.y=2.68;root.add(name);root.userData.name=name;
     const health = new T.Group(); health.position.y = 2.93; root.add(health);
-    for(let i=0;i<e.hp;i++) box(health,.2,.055,.035,(i-(e.hp-1)/2)*.26,0,0,mats.red);
+    for(let i=0;i<3;i++) box(health,.2,.055,.035,(i-1)*.26,0,0,mats.red);
     root.userData.health=health;
     const sleep=label('Z Z Z','#ffdc7a',1.1,.38);sleep.position.y=1.55;sleep.visible=false;root.add(sleep);root.userData.sleep=sleep;
     const gaze=label('OLHOU! E','#96ffce',1.6,.3);gaze.position.y=3.25;gaze.visible=false;root.add(gaze);root.userData.gaze=gaze;
@@ -790,6 +791,12 @@ export function createGame(canvas, onState, onError) {
       if(e.type==='remote-trigger'){tone(1200,.08,'square',.1);tone(1600,.08,'square',.1,.1);}
       if(e.type==='flag-plant'){noise(.15,.13);tone(210,.3,'triangle',.15,0,430);}
       if(e.type==='vampire-bite'){tone(180,.35,'sawtooth',.1,0,600);noise(.18,.07);}
+      if(e.type==='vampire-transform'){tone(140,.8,'triangle',.13,0,720);}
+      if(e.type==='vampire-dive'){tone(900,.65,'sine',.12,0,110);}
+      if(e.type==='poison-speech'){window.speechSynthesis?.cancel();speak('Não vai ter vacina!');tone(220,.15,'square',.08);}
+      if(e.type==='poison-release'){noise(.9,.1);tone(110,.9,'triangle',.08);}
+      if(e.type==='antidote'){tone(780,.15,'sine',.09,0,1100);}
+      if(e.type==='alligator'){[260,520,390].forEach((n,i)=>tone(n,.15,'square',.1,i*.13));burst(e.x*TILE,1.3,e.z*TILE,20,[mats.cyan,mats.yellow]);}
       if(e.type==='motor-boost'){tone(90,.55,'sawtooth',.13,0,280);}
       if(e.type==='sword-hit') {noise(.07,.16);tone(1300,.1,'triangle',.15,0,320);}
       if(e.type==='sword-swing') {noise(.065,.055);}
@@ -910,14 +917,14 @@ export function createGame(canvas, onState, onError) {
       if (!g) continue;
       if(e.hp<=0){dynamic.remove(g);bodies.delete(e.id);continue;}
       g.position.set(e.x*TILE,0,e.z*TILE);
-      const figure=g.userData.character;if(figure){const asleep=e.stun>0&&e.stunKind==='hypnosis';figure.position.y=asleep?.45:1.22+Math.abs(Math.sin(e.walk))*.035;figure.rotation.z=asleep?-1.4:Math.sin(e.walk)*.018;figure.scale.y=1-Math.abs(Math.sin(e.walk))*.012;}
+      const figure=g.userData.character;if(figure){const asleep=e.stun>0&&e.stunKind==='hypnosis';figure.position.y=asleep?.45:1.22+Math.abs(Math.sin(e.walk))*.035;figure.rotation.z=asleep?-1.4:Math.sin(e.walk)*.018;figure.scale.y=1-Math.abs(Math.sin(e.walk))*.012;if(e.alligator){const mat=globalSpecialView.alligatorMaterial(e.walk);if(mat)figure.material=mat;}}
       g.userData.sleep.visible=e.stun>0;g.userData.sleep.position.x=reduced?0:Math.sin(clock*4)*.2;
       g.userData.gaze.visible=game.hypnosisTarget()===e;
       g.userData.facing.visible=game.bookTime>0&&!(e.stun>0);
       g.rotation.y = Math.atan2(camera.position.x/TILE - e.x, camera.position.z/TILE - e.z);
       g.userData.facing.rotation.y=(e.yaw||0)-g.rotation.y;
       g.visible = e.invulnerable <= 0 || Math.sin(clock * 30) > 0;
-      g.userData.health.children.forEach((pip,i)=>pip.visible=i<e.hp);
+      g.userData.health.children.forEach((pip,i)=>{pip.visible=i<e.hp;pip.scale.x=Math.max(0,Math.min(1,e.hp-i));});
     }
     const activeDecoys=new Set(game.decoys.map(e=>e.id));
     for(const [id,g] of decoyBodies)if(!activeDecoys.has(id)){releaseObject(g);decoyBodies.delete(id);}
@@ -1168,7 +1175,7 @@ export function createGame(canvas, onState, onError) {
     if (e.repeat) return;
     if (e.code === 'Space') game.throwBomb(true);
     if (e.code === 'KeyE' && !e.repeat) game.special();
-    if (e.code === 'KeyQ' && game.phase === 'playing') game.speak();
+    if (e.code === 'KeyQ' && game.phase === 'playing') {if(game.flight)game.cycleTarget();else if(!game.speechTime)game.speak();}
   });
   bind(document, 'keyup', (e) => {
     keys[e.code] = false;
@@ -1237,6 +1244,7 @@ export function createGame(canvas, onState, onError) {
   });
   const makePickup=createPickupFactory({mesh,box,material,batchStatic,geometries,materials,textures});
   const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures,onError});
+  const globalSpecialView=createGlobalSpecialView({scene,game,box,mesh,materials,geometries,textures,onError});
   function loop(now) {
     const equipLift=reduced?0:game.equipTime/.45;
     equippedSword.visible=game.swordTime>0&&!game.heldBomb;
@@ -1262,6 +1270,7 @@ export function createGame(canvas, onState, onError) {
         right: keys.KeyD,
         run: keys.ShiftLeft || keys.ShiftRight,
         attack: held,
+        ascend:keys.Space,descend:keys.ControlLeft||keys.ControlRight,
       };
       // Catch up in small physics steps instead of stretching seconds at low FPS.
       advanceFrame(game,elapsedFrame,input);
@@ -1313,6 +1322,7 @@ export function createGame(canvas, onState, onError) {
         camera.fov=shot.fov;camera.updateProjectionMatrix();hand.visible=false;
         invaderView.sync(camera);
       }
+      if(game.invasion.stage!=='arrival'&&globalSpecialView.camera(camera,reduced))hand.visible=false;
       kick = Math.max(0, kick - dt * 2);
       hand.position.set(
         Math.sin(clock * 5) * 0.008,
@@ -1348,6 +1358,7 @@ export function createGame(canvas, onState, onError) {
       syncWorld(dt);
     } else hand.visible = false;
     invaderView.sync(camera);
+    globalSpecialView.sync(camera,game.elapsed,reduced);
     soundtrack?.update(game,muted||document.hidden);
     if(game.phase==='playing') {
       if(game.countdown>3) {
@@ -1405,6 +1416,8 @@ export function createGame(canvas, onState, onError) {
     special() {
       game.special();
     },
+    diveTarget(id){game.diveTarget(id);},
+    cycleTarget(){game.cycleTarget();},
     throwBomb() {
       game.throwBomb(false);
     },
@@ -1433,6 +1446,7 @@ export function createGame(canvas, onState, onError) {
       invaderView.dispose();
       cancelAnimationFrame(frame);
       specialView.destroy();
+      globalSpecialView.destroy();
       unlock();
       listeners.forEach((f) => f());
       soundtrack?.dispose();

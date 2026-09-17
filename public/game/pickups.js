@@ -21,7 +21,7 @@ export function createPickupFactory({ mesh, box, material, batchStatic, geometri
   materials.push(...rings,shadow);
   return type=>{
     const root=new T.Group(),figure=new T.Group();root.add(figure);root.userData.figure=figure;
-    if(type>=3){const sprite=assets(['steak','chair','sword','handlebar','windjar','goblet','workbook','radio','flag'][type-3],1.4);figure.add(sprite);const ring=mesh(root,ringGeo,rings[type],0,.035,0);ring.rotation.x=-Math.PI/2;return root;}
+    if(type>=3){const sprite=assets(['steak','chair','sword','microphone','windjar','goblet','workbook','radio','flag'][type-3],1.4);figure.add(sprite);const ring=mesh(root,ringGeo,rings[type],0,.035,0);ring.rotation.x=-Math.PI/2;return root;}
     const pattern=patterns[type],palette=palettes[type],pixel=.115;
     pattern.forEach((row,y)=>row.split('').forEach((value,x)=>{
       if(value==='.')return;

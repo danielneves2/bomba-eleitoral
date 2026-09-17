@@ -1,6 +1,7 @@
 // Pure deterministic game simulation. Coordinates are arena tiles.
-import { SPECIALS, SPECIAL_DAMAGE, faces, equipment } from './specials.mjs?v=19';
-import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=18';
+import { SPECIALS, SPECIAL_DAMAGE, faces, equipment } from './specials.mjs?v=20';
+import {HYPNOSIS_SECONDS,initGlobalSpecials,startFlight,startSpeech,tickSpeech,tickGlobalSpecials,antidoteGoal,vampireDive,cycleVampireTarget,globalSpecialSnapshot} from './global-specials.mjs?v=20';
+import { Invasion, TRUMP_RADIUS } from './invasion.mjs?v=20';
 import { circleCells } from './impact.mjs?v=18';
 import { clearSight } from './impact.mjs?v=18';
 export const SIZE = 15;
@@ -260,6 +261,7 @@ export class Match {
     this.chairs = [];
     this.chairReady=false;this.chairThrowTime=0;this.equipTime=0;
     this.bookTime=0;this.remoteTime=0;this.flagTime=0;this.actionAnim=0;this.specialCooldown=0;this.dashTime=0;this.specialEffects=[];
+    initGlobalSpecials(this);
     this.decoys = [];
     this.barricades = [];
     this.property = null;
@@ -343,6 +345,7 @@ export class Match {
     ].some(([dx, dz]) => this.solid(x + dx, z + dz));
   }
   move(actor, dx, dz) {
+    if(actor===this.player&&this.flight){if(!this.flight.dive){actor.x=Math.max(.8,Math.min(13.2,actor.x+dx));actor.z=Math.max(.8,Math.min(13.2,actor.z+dz));}return;}
     if(this.invasion.cages.some(c=>c.victim===actor&&c.time>0)) { actor.vx=0;actor.vz=0;return; }
     const propertyBlocks = (x, z) => {
       if (!this.property || this.property.time <= 0 || actor === this.player || this.sameTeam(actor,this.player)) return false;
@@ -378,6 +381,8 @@ export class Match {
     return b;
   }
   primaryPress() {
+    if(this.speechTime>0)return false;
+    if(this.flight)return vampireDive(this);
     if(this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
     if(this.swordTime>0)return this.swingSword();
     if(this.chairReady)return this.throwChair();
@@ -394,6 +399,7 @@ export class Match {
     this.events.push({type:hit?'sword-hit':'sword-swing'});return true;
   }
   beginHold() {
+    if(this.flight||this.speechTime>0)return false;
     if (
       this.invasion.stage === 'arrival' ||
       this.phase !== 'playing' ||
@@ -513,6 +519,7 @@ export class Match {
   }
   hurtPlayer(amount = 1, { unblockable = false, ignoreInvulnerable = false } = {}) {
     const p = this.player;
+    if(this.flight)return false;
     if(p.picanhaTime>0) {this.shieldFlash=.3;return false;}
     if (p.hp <= 0 || (!ignoreInvulnerable && p.invulnerable > 0)) return false;
     if (!unblockable && (p.shield > 0 || this.insideProperty(p))) {
@@ -525,16 +532,16 @@ export class Match {
     p.invulnerable = 1.6;
     this.damageFlash = 0.55;
     this.events.push({ type: 'hurt' });
-    if (p.hp <= 0 && p.vampire > 0) this.reviveVampire();
     return true;
   }
-  hurtEnemy(enemy, owner = 'special', amount = 1) {
-    if (!enemy || enemy.hp <= 0 || enemy.invulnerable > 0 || this.friendlyDamage(enemy,owner)) return false;
+  hurtEnemy(enemy, owner = 'special', amount = 1, {continuous=false} = {}) {
+    if (!enemy || enemy.hp <= 0 || (!continuous&&enemy.invulnerable > 0) || this.friendlyDamage(enemy,owner)) return false;
     enemy.hp = Math.max(0, enemy.hp - amount);
-    enemy.invulnerable = 0.9;
+    if(enemy.hp<1e-7)enemy.hp=0;
+    if(!continuous)enemy.invulnerable = 0.9;
     const credited = owner === 'player' || owner === 'special';
-    this.events.push({ type: 'hit', id: enemy.id, x: enemy.x, z: enemy.z, credited, lethal: enemy.hp <= 0 });
-    if (credited) {
+    if(!continuous||enemy.hp<=0)this.events.push({ type: 'hit', id: enemy.id, x: enemy.x, z: enemy.z, credited, lethal: enemy.hp <= 0 });
+    if (credited&&(!continuous||enemy.hp<=0)) {
       this.hitMarker = enemy.hp <= 0 ? 0.9 : 0.5;
       this.hitText = enemy.hp <= 0 ? `${NAMES[enemy.skin]} ELIMINADO +500` : `${NAMES[enemy.skin]} · -${amount} CORAÇÕES`;
     }
@@ -583,22 +590,17 @@ export class Match {
   useEquippedSpecial() {
     const p=this.player;
     if(this.specialCooldown>0)return false;
-    if(this.character===1&&p.ram>0) {this.dashTime=.6;this.actionAnim=.6;this.specialCooldown=1.6;this.events.push({type:'motor-boost'});return true;}
     if(this.character===2&&p.wind>0) {this.releaseStoredWind();return true;}
     if(this.character===3&&p.vampire>0) {
-      const target=this.enemies.filter(e=>e.hp>0&&!this.sameTeam(e,p)&&Math.hypot(e.x-p.x,e.z-p.z)<4.5&&faces(p,e,.8)&&clearSight(this,p,e)).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
-      if(!target){this.notice='MIRE EM UM RIVAL PRÓXIMO';this.noticeTime=1;return false;}
-      if(!this.hurtEnemy(target,'special',SPECIAL_DAMAGE))return false;
-      p.vampire=0;p.hp=Math.min(3,p.hp+1);this.actionAnim=.8;
-      this.specialEffects.push({id:++this.serial,kind:'bats',x:p.x,z:p.z,tx:target.x,tz:target.z,time:.8,max:.8});
-      this.notice='MORDIDA! +1 CORAÇÃO';this.noticeTime=2;this.events.push({type:'vampire-bite',x:target.x,z:target.z});return true;
+      return vampireDive(this);
     }
     if(this.character===4&&this.bookTime>0) {
       const target=this.hypnosisTarget();this.actionAnim=.5;this.specialCooldown=.6;
       this.events.push({type:target?'hypnosis':'book-miss',x:target?.x??p.x,z:target?.z??p.z});
       if(!target){this.notice='ELE PRECISA OLHAR PARA A CARTEIRA!';this.noticeTime=1.2;return false;}
-      target.stun=3;target.stunKind='hypnosis';target.target=null;target.vx=0;target.vz=0;this.bookTime=0;
-      this.notice='HIPNOTIZADO POR 3s · JOGUE A BOMBA!';this.noticeTime=2.5;return true;
+      target.stun=HYPNOSIS_SECONDS;target.stunKind='hypnosis';target.target=null;target.vx=0;target.vz=0;this.bookTime=0;
+      this.specialEffects.push({id:++this.serial,kind:'spirit',skin:target.skin,x:target.x,z:target.z,time:HYPNOSIS_SECONDS,max:HYPNOSIS_SECONDS});
+      this.notice='HIPNOTIZADO POR 5s · JOGUE A BOMBA!';this.noticeTime=2.5;return true;
     }
     if(this.character===5&&this.remoteTime>0) {
       const bombs=this.bombs.filter(b=>b.owner==='player');
@@ -616,6 +618,7 @@ export class Match {
     return false;
   }
   special() {
+    if(this.speechTime>0||(this.character===1&&this.poison))return false;
     if(this.invasion.stage==='arrival'||this.phase!=='playing'||this.countdown>0||this.player.hp<=0||this.heldBomb)return false;
     if(equipment(this).ready)return this.useEquippedSpecial();
     if (
@@ -638,17 +641,16 @@ export class Match {
       this.notice = 'PICANHA PARA TODOS!';
     }
     if (this.character === 1) {
-      p.turbo = 6;
-      p.ram = 6;
-      this.notice = 'MOTOCIATA · E PARA ARRANCAR!';
+      startSpeech(this);
+      this.notice = 'PRONUNCIAMENTO · PREPARE O ANTÍDOTO!';
     }
     if (this.character === 2) {
       p.wind = 8;
       this.notice = 'POTE DE VENTO · E PARA SOLTAR!';
     }
     if (this.character === 3) {
-      p.vampire = 10;
-      this.notice = 'PACTO ATIVO · E PARA MORDER!';
+      startFlight(this);
+      this.notice = 'VOO LIVRE · Q TROCA ALVO · E MERGULHA!';
     }
     if(this.character===4){this.bookTime=10;this.notice='CARTEIRA NA MÃO · ESPERE O OLHAR E APERTE E!';}
     if(this.character===5){this.remoteTime=12;this.notice='RÁDIO PRONTO · PLANTE BOMBAS, DEPOIS E!';}
@@ -665,6 +667,8 @@ export class Match {
     this.events.push({ type: 'special' });
     return true;
   }
+  cycleTarget(){return cycleVampireTarget(this);}
+  diveTarget(id){return vampireDive(this,id);}
   throwChair() {
     if(!this.chairReady||this.heldBomb||this.countdown>0||this.phase!=='playing'||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
     const p=this.player,speed=8.5;
@@ -763,6 +767,7 @@ export class Match {
       return;
     }
     // Every contestant, bomb fuse and match clock pauses for the shared flyby.
+    if(tickSpeech(this,dt))return;
     if (this.invasion.tick(this, dt)) return;
     if (this.pendingRelease !== null) { const planted=this.pendingRelease;this.pendingRelease=null;this.releaseBomb(planted); }
     this.hitMarker = Math.max(0, this.hitMarker - dt);
@@ -798,7 +803,6 @@ export class Match {
     p.picanhaTime = Math.max(0, p.picanhaTime - dt);
     if (p.picanhaTime <= 0) p.picanha = 0;
     p.wind = Math.max(0, p.wind - dt);
-    p.vampire = Math.max(0, p.vampire - dt);
     p.ram = Math.max(0, p.ram - dt);
     if (this.property) {
       this.property.time -= dt;
@@ -820,6 +824,7 @@ export class Match {
       speed = (this.dashTime>0 ? 6 : input.run ? 3.3 : 2.5) * (p.turbo > 0&&this.dashTime<=0 ? 1.5 : 1),
       blend = 1 - Math.exp(-(forward || side ? 22 : 36) * dt);
     const active = p.hp > 0 && this.phase === 'playing';
+    tickGlobalSpecials(this,dt,input);
     p.vx +=
       (active
         ? ((-Math.sin(p.yaw) * forward + Math.cos(p.yaw) * side) / length) *
@@ -935,7 +940,8 @@ export class Match {
               Math.hypot(e.x - a.x, e.z - a.z) -
               Math.hypot(e.x - b.x, e.z - b.z),
           )[0] || p;
-        const goal = [Math.round(victim.x), Math.round(victim.z)];
+        const dose=antidoteGoal(this,e);
+        const goal = dose?[dose.x,dose.z]:[Math.round(victim.x), Math.round(victim.z)];
         e.target = this.path(e, goal, hazard, endangered);
         if (!e.target) {
           const possible = [
@@ -1021,6 +1027,7 @@ export class Match {
     for (const item of this.items.slice())
       if (
         p.hp > 0 &&
+        !this.flight &&
         item.wait <= 0 &&
         (item.type !== 0 || p.hp < 3) &&
         (item.type < 3 || this.specialItems < 2) &&
@@ -1099,6 +1106,7 @@ export class Match {
 
   snapshot() {
     return {
+      ...globalSpecialSnapshot(this),
       phase: this.phase,
       teamMode:this.teamMode,playerTeam:this.playerTeam,winnerTeam:this.winnerTeam,
       teams:['left','right'].map(id=>({id,alive:[this.player,...this.enemies].filter(a=>a.team===id&&a.hp>0).length})),

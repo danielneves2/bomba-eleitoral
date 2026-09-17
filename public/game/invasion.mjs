@@ -170,7 +170,7 @@ export class Invasion {
         else {const step=Math.min(distance,dt*3.2);game.move(a,dx/distance*step,dz/distance*step);a.walk+=dt*13;}
         return false;
       }
-      const nearest = survivors.filter(v=>this.kind!=='bukele'||!this.captured.has(v)).sort((p,q)=>Math.hypot(p.x-a.x,p.z-a.z)-Math.hypot(q.x-a.x,q.z-a.z));
+      const nearest = survivors.filter(v=>!(v===game.player&&game.flight)&&(this.kind!=='bukele'||!this.captured.has(v))).sort((p,q)=>Math.hypot(p.x-a.x,p.z-a.z)-Math.hypot(q.x-a.x,q.z-a.z));
       const close = nearest.find(v=>Math.hypot(v.x-a.x,v.z-a.z)<1.6 && clearSight(game,a,v));
       if(close) {
         if(this.kind==='bukele') {

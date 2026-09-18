@@ -1,6 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { io, Socket } from 'socket.io-client';
+const GAME_SERVER = process.env.NEXT_PUBLIC_GAME_SERVER || 'http://localhost:4000';
+type RoomState = { total: number; guests: number; ready: number; allReady: boolean };
+type RoomResponse =
+  | { success: true; roomCode: string; playerIndex: number; seed: number }
+  | { success: false; message: string };
 import {SPECIALS} from '../public/game/specials.mjs';
 import { Slider } from '@/components/ui/slider';
 import { Progress } from '@/components/ui/progress';
@@ -180,6 +186,8 @@ type GameApi = {
   key: (code: string, down: boolean) => void;
   mute: (value: boolean) => void;
   destroy: () => void;
+  syncSeed: (seed: number) => void;
+  setMultiplayer: (socket: Socket | null, room: string, idx: number) => void;
 };
 type GameWindow = Window & {
   loadCharacterAtlas: () => Promise<HTMLCanvasElement>;
@@ -199,6 +207,7 @@ export default function Home() {
     [ready, setReady] = useState(false),
     [entered,setEntered]=useState(false),
     [setupStep,setSetupStep]=useState(0),
+    [isReadyForMatch, setIsReadyForMatch] = useState(false),
     [helpPage,setHelpPage]=useState(0),
     [logo,setLogo]=useState(''),
     [error, setError] = useState(''),
@@ -206,7 +215,13 @@ export default function Home() {
     [help, setHelp] = useState(false),
     [mode, setMode] = useState('caos'),
     [teamSide,setTeamSide]=useState('left'),
-    [sensitivity, setSensitivity] = useState(1);
+    [sensitivity, setSensitivity] = useState(1),
+    [roomCode, setRoomCode] = useState(''),
+    [joinInput, setJoinInput] = useState(''),
+    [socketRef, setSocketRef] = useState<Socket | null>(null),
+    [playerIndex, setPlayerIndex] = useState(0),
+    [roomState, setRoomState] = useState<RoomState>({ total: 1, guests: 0, ready: 0, allReady: false }),
+    [roomError, setRoomError] = useState('');
   useEffect(() => {
     let disposed = false;
     const script = document.createElement('script');
@@ -240,12 +255,61 @@ export default function Home() {
       api.current?.destroy();
     };
   }, []);
+  const attachRoomListeners = (s: Socket) => {
+    s.on('roomState', (st: RoomState) => setRoomState(st));
+    s.on('startRefused', (d: { reason: string }) => setRoomError(d.reason));
+  };
+
+  const createMultiplayerRoom = () => {
+    setRoomError('');
+    const newSocket = io(GAME_SERVER);
+    newSocket.on('connect', () => {
+      newSocket.emit('createRoom', (res: RoomResponse) => {
+        if (res.success) {
+          setRoomCode(res.roomCode);
+          setPlayerIndex(res.playerIndex);
+          setSocketRef(newSocket);
+          setMode('multi');
+          api.current?.syncSeed(res.seed);
+          attachRoomListeners(newSocket);
+          api.current?.setMultiplayer(newSocket, res.roomCode, res.playerIndex);
+        }
+      });
+    });
+  };
+
+  const joinMultiplayerRoom = () => {
+    setRoomError('');
+    const newSocket = io(GAME_SERVER);
+    newSocket.on('connect', () => {
+      newSocket.emit('joinRoom', joinInput, (res: RoomResponse) => {
+        if (res.success) {
+          setRoomCode(joinInput.toUpperCase());
+          setPlayerIndex(res.playerIndex);
+          setSocketRef(newSocket);
+          setMode('multi');
+          api.current?.syncSeed(res.seed);
+          attachRoomListeners(newSocket);
+          api.current?.setMultiplayer(newSocket, joinInput.toUpperCase(), res.playerIndex);
+        } else {
+          setRoomError(res.message);
+          newSocket.close();
+        }
+      });
+    });
+  };
+
   const playing = state.phase === 'playing',
     menu = state.phase === 'menu',
     ch = cast[selected];
-  const start = () => {
-    api.current?.start(selected, mode==='teams'?`teams-${teamSide}`:mode);
-    setHelp(false);
+      const start = () => {
+    if (playerIndex > 0) {
+      setIsReadyForMatch(true);
+      socketRef?.emit('playerReady', { roomCode, character: selected });
+    } else {
+      api.current?.start(selected, mode==='teams'?`teams-${teamSide}`:mode);
+      setHelp(false);
+    }
   };
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen?.();
@@ -386,11 +450,15 @@ export default function Home() {
               <button className="play-button setup-next" onClick={()=>setSetupStep(1)}>ESCOLHER MODO <ArrowRight/></button>
               <button
                 className="play-button launch-match"
-                disabled={!ready || !!error}
+                disabled={!ready || !!error || (playerIndex > 0 && isReadyForMatch) || (roomCode !== '' && playerIndex === 0 && !roomState.allReady)}
                 onClick={start}
               >
                 <Bomb size={23} />
-                {ready ? 'TOCAR O TERROR' : 'PREPARANDO A ARENA…'}
+                {playerIndex > 0
+                  ? (isReadyForMatch ? 'AGUARDANDO O HOST…' : 'ESTOU PRONTO')
+                  : !ready ? 'PREPARANDO A ARENA…'
+                  : roomCode !== '' && !roomState.allReady ? `AGUARDANDO ${roomState.ready}/${roomState.guests} PRONTOS`
+                  : 'TOCAR O TERROR'}
                 <ArrowRight size={23} />
               </button>
               <button className="help-button" onClick={() => setHelp(true)}>
@@ -419,7 +487,47 @@ export default function Home() {
               <label htmlFor="side-left"><RadioGroupItem id="side-left" value="left"/> ESQUERDA</label><label htmlFor="side-right"><RadioGroupItem id="side-right" value="right"/> DIREITA</label>
               <small>Você + 2 aliados contra 3 rivais. Sem fogo amigo. Equipes satíricas: qualquer personagem pode jogar dos dois lados.</small>
             </RadioGroup>}
-            <div className="future-mode"><strong>CONTRA A POPULAÇÃO</strong><span>Multiplayer online · próxima etapa</span></div>
+            <div className="future-mode room-block">
+              <strong>MULTIPLAYER ONLINE</strong>
+              {roomCode ? (
+                <div className="room-connected">
+                  <span>Código da sua sala: <strong>{roomCode}</strong></span>
+                  {playerIndex === 0 ? (
+                    <small>
+                      {roomState.guests === 0
+                        ? 'Passe o código para seus amigos entrarem.'
+                        : `${roomState.ready} de ${roomState.guests} confirmaram que estão prontos.`}
+                    </small>
+                  ) : (
+                    <small>
+                      {isReadyForMatch
+                        ? 'Você está pronto. O host começa a partida.'
+                        : 'Confirme em ESTOU PRONTO quando escolher seu personagem.'}
+                    </small>
+                  )}
+                </div>
+              ) : (
+                <div className="room-actions">
+                  <button type="button" className="room-button room-create" onClick={createMultiplayerRoom}>
+                    CRIAR SALA
+                  </button>
+                  <div className="join-box">
+                    <input
+                      className="room-input"
+                      maxLength={4}
+                      placeholder="CÓDIGO"
+                      value={joinInput}
+                      onChange={e => setJoinInput(e.target.value.toUpperCase())}
+                      aria-label="Código da sala"
+                    />
+                    <button type="button" className="room-button room-join" onClick={joinMultiplayerRoom} disabled={joinInput.length < 4}>
+                      ENTRAR
+                    </button>
+                  </div>
+                </div>
+              )}
+              {roomError && <small className="room-error">{roomError}</small>}
+            </div>
             </div>
           </div>
           </div>

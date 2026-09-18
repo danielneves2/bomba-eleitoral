@@ -20,9 +20,12 @@ export function faces(from, to, cosine = .55) {
   return (-Math.sin(from.yaw||0)*dx-Math.cos(from.yaw||0)*dz)/d>=cosine;
 }
 
-export function equipment(game) {
-  const times=[game.player.picanhaTime,game.speechTime||game.poison?.time||0,game.player.wind,game.player.vampire,game.bookTime,game.remoteTime,game.swordTime,game.flagTime,game.chairReady?1:0];
-  const time=times[game.character]||0,meta=SPECIALS[game.character];
-  const actions=['PROTEÇÃO TOTAL','VOCÊ É IMUNE À NÉVOA','E · SOLTAR RAJADA','Q · TROCAR ALVO / E · MERGULHAR',game.hypnosisTarget()?'OLHOU! E · HIPNOTIZAR':'MIRE EM QUEM OLHA PARA VOCÊ','E · DETONAR SUAS BOMBAS','CLIQUE · GOLPEAR','E · FINCAR BANDEIRA','CLIQUE OU E · ARREMESSAR'];
-  return {time,name:meta.name,icon:itemIcon(meta.asset),action:time>0?actions[game.character]:'E · EQUIPAR',ready:time>0&&![0,1,6].includes(game.character)};
+// `f` e o lutador dono deste equipamento: o heroi local por padrao, ou um
+// convidado no multiplayer. Cada um carrega os proprios tempos.
+export function equipment(game, f = game.player) {
+  const times=[f.picanhaTime,game.speechTime||game.poison?.time||0,f.wind,f.vampire,f.bookTime,f.remoteTime,f.swordTime,f.flagTime,f.chairReady?1:0];
+  const character=game.characterOf?game.characterOf(f):game.character;
+  const time=times[character]||0,meta=SPECIALS[character];
+  const actions=['PROTEÇÃO TOTAL','VOCÊ É IMUNE À NÉVOA','E · SOLTAR RAJADA','Q · TROCAR ALVO / E · MERGULHAR',game.hypnosisTarget(f)?'OLHOU! E · HIPNOTIZAR':'MIRE EM QUEM OLHA PARA VOCÊ','E · DETONAR SUAS BOMBAS','CLIQUE · GOLPEAR','E · FINCAR BANDEIRA','CLIQUE OU E · ARREMESSAR'];
+  return {time,name:meta.name,icon:itemIcon(meta.asset),action:time>0?actions[character]:'E · EQUIPAR',ready:time>0&&![0,1,6].includes(character)};
 }

@@ -120,9 +120,15 @@ export const NAMES = [
   'Datena',
 ];
 export const FUSE = 3;
-export function advanceFrame(game, seconds, input = {}) {
+// Aceita tanto o input solto de um jogador quanto o mapa { indice: input } do multiplayer.
+export function normalizeInputs(inputs = {}) {
+  const slots = Object.keys(inputs);
+  return slots.length && slots.every(k => /^\d+$/.test(k)) ? inputs : { 0: inputs };
+}
+export function advanceFrame(game, seconds, inputs = {}) {
+  const multiInput = normalizeInputs(inputs);
   for (let remaining = Math.min(Math.max(0, seconds), .25); remaining > 1e-8; remaining -= .05)
-    game.tick(Math.min(.05, remaining), input);
+    game.tick(Math.min(.05, remaining), multiInput);
 }
 export const PHYSICS_STEP = 1 / 120;
 const RADIUS = 0.19;
@@ -210,9 +216,90 @@ export function predictThrow(player, map, heldTime = 0, fuse = FUSE) {
     airburst: b.y > supportHeight(map, b.x, b.z) + RADIUS + 0.2,
   };
 }
+// Todo lutador da arena nasce com o mesmo formato, seja o heroi local, um bot
+// ou um convidado do multiplayer. `human` marca quem tem dono; o resto roda a IA.
+export function makeFighter(overrides = {}) {
+  return {
+    id: 0,
+    skin: 0,
+    team: null,
+    human: false,
+    x: 1,
+    z: 1,
+    vx: 0,
+    vz: 0,
+    yaw: -Math.PI / 2,
+    pitch: 0,
+    hp: 3,
+    invulnerable: 0,
+    shield: 0,
+    turbo: 0,
+    picanha: 0,
+    picanhaTime: 0,
+    wind: 0,
+    vampire: 0,
+    ram: 0,
+    heldBomb: null,
+    cooldown: 0,
+    // Estado do especial: cada lutador carrega o seu.
+    specialCharge: 1,
+    specialItems: 0,
+    specialCooldown: 0,
+    equipTime: 0,
+    actionAnim: 0,
+    dashTime: 0,
+    bookTime: 0,
+    remoteTime: 0,
+    flagTime: 0,
+    swordTime: 0,
+    swordCooldown: 0,
+    swordSwing: 0,
+    chairReady: false,
+    chairThrowTime: 0,
+    property: null,
+    attackHeld: false,
+    plantHeld: false,
+    specialHeld: false,
+    // Alvo de rede: para onde o servidor disse que este boneco esta indo.
+    netTarget: null,
+    // Usados pela IA; um lutador humano simplesmente nao os consome.
+    cd: 0,
+    think: 0,
+    target: null,
+    ramCooldown: 0,
+    stun: 0,
+    stunKind: null,
+    speed: 1.35,
+    walk: 0,
+    ...overrides,
+  };
+}
+
+// Mesma fisica de andar para o heroi local e para um convidado do multiplayer.
+// `beforeApply` existe para preservar a ordem original: os especiais globais rodam
+// depois de calcular a velocidade e antes de aplica-la.
+export function driveFighter(match, f, input, dt, { dash = 0, beforeApply } = {}) {
+  const forward = dash > 0 ? 1 : (input.forward ? 1 : 0) - (input.back ? 1 : 0),
+    side = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  const length = Math.hypot(forward, side) || 1,
+    speed = (dash > 0 ? 6 : input.run ? 3.3 : 2.5) * (f.turbo > 0 && dash <= 0 ? 1.5 : 1),
+    blend = 1 - Math.exp(-(forward || side ? 22 : 36) * dt);
+  const active = f.hp > 0 && match.phase === 'playing';
+  if (beforeApply) beforeApply();
+  f.vx += (active ? ((-Math.sin(f.yaw) * forward + Math.cos(f.yaw) * side) / length) * speed - f.vx : -f.vx) * blend;
+  f.vz += (active ? ((-Math.cos(f.yaw) * forward - Math.sin(f.yaw) * side) / length) * speed - f.vz : -f.vz) * blend;
+  if (active) match.move(f, f.vx * dt, f.vz * dt);
+  return active;
+}
+
 export class Match {
   constructor(seed = Date.now()) {
     this.random = rng(seed);
+    // Modo remoto: este Match e a copia de um cliente no multiplayer. Ele preve o
+    // proprio boneco e desenha; quem sorteia e quem aplica dano e o servidor.
+    this.remote = false;
+    // Partida em rede: a fase deixa de ser ditada pela morte do lutador 0.
+    this.networked = false;
     this.serial = 0;
     this.reset(0, 'caos');
     this.phase = 'menu';
@@ -226,22 +313,15 @@ export class Match {
     this.arena=ARENAS[this.arenaIndex];
     this.map = generateMap(this.random,this.arena.id);
     this.phase = 'playing';
-    this.player = {
-      team:this.teamMode?this.playerTeam:null,
+    this.player = makeFighter({
+      team: this.teamMode ? this.playerTeam : null,
+      skin: character,
+      human: true,
       x: 1,
       z: 1,
-      yaw: -Math.PI / 2,
-      pitch: 0,
       hp: 3,
       invulnerable: 3,
-      shield: 0,
-      turbo: 0,
-      picanha: 0,
-      picanhaTime: 0,
-      wind: 0,
-      vampire: 0,
-      ram: 0,
-    };
+    });
     this.bombs = [];
     this.heldBomb = null;
     this.pendingRelease = null;
@@ -255,8 +335,6 @@ export class Match {
     this.shieldFlash = 0;
     this.hitText = '';
     this.physicsAccumulator = 0;
-    this.player.vx = 0;
-    this.player.vz = 0;
     this.fires = [];
     this.chairs = [];
     this.chairReady=false;this.chairThrowTime=0;this.equipTime=0;
@@ -297,21 +375,16 @@ export class Match {
       [1, 7],
     ];
     positions.slice(0, mode === 'treino' ? 3 : 8).forEach(([x, z], i) =>
-      this.enemies.push({
+      this.enemies.push(makeFighter({
         id: ++this.serial,
         x,
         z,
         hp: mode === 'treino' ? 1 : 2,
         skin: (character + 1 + i) % NAMES.length,
         cd: 3 + i * 0.65,
-        think: 0,
-        target: null,
-        invulnerable: 0,
-        ramCooldown: 0,
-        yaw: Math.atan2(x-7,z-7),stun:0,stunKind:null,
+        yaw: Math.atan2(x - 7, z - 7),
         speed: mode === 'treino' ? 1.03 : 1.35,
-        walk: 0,
-      }),
+      })),
     );
     if(this.teamMode) {
       const squads={left:[0,2,7],right:[1,4,6]},opposite=this.playerTeam==='left'?'right':'left';
@@ -325,6 +398,113 @@ export class Match {
     this.invasion = new Invasion(this.random,this.lastOmittedInvader);
     this.lastOmittedInvader=this.invasion.omitted;
     this.events.push({ type: 'reset' });
+  }
+  // O heroi local e o lutador de indice 0. Estes apelidos mantem todo o codigo
+  // e os testes do single player falando `this.heldBomb` como sempre falaram.
+  get heldBomb() { return this.player.heldBomb; }
+  set heldBomb(value) { this.player.heldBomb = value; }
+  get cooldown() { return this.player.cooldown; }
+  set cooldown(value) { this.player.cooldown = value; }
+  get specialCharge() { return this.player.specialCharge; }
+  set specialCharge(value) { this.player.specialCharge = value; }
+  get specialItems() { return this.player.specialItems; }
+  set specialItems(value) { this.player.specialItems = value; }
+  get specialCooldown() { return this.player.specialCooldown; }
+  set specialCooldown(value) { this.player.specialCooldown = value; }
+  get equipTime() { return this.player.equipTime; }
+  set equipTime(value) { this.player.equipTime = value; }
+  get actionAnim() { return this.player.actionAnim; }
+  set actionAnim(value) { this.player.actionAnim = value; }
+  get dashTime() { return this.player.dashTime; }
+  set dashTime(value) { this.player.dashTime = value; }
+  get bookTime() { return this.player.bookTime; }
+  set bookTime(value) { this.player.bookTime = value; }
+  get remoteTime() { return this.player.remoteTime; }
+  set remoteTime(value) { this.player.remoteTime = value; }
+  get flagTime() { return this.player.flagTime; }
+  set flagTime(value) { this.player.flagTime = value; }
+  get swordTime() { return this.player.swordTime; }
+  set swordTime(value) { this.player.swordTime = value; }
+  get swordCooldown() { return this.player.swordCooldown; }
+  set swordCooldown(value) { this.player.swordCooldown = value; }
+  get swordSwing() { return this.player.swordSwing; }
+  set swordSwing(value) { this.player.swordSwing = value; }
+  get chairReady() { return this.player.chairReady; }
+  set chairReady(value) { this.player.chairReady = value; }
+  get chairThrowTime() { return this.player.chairThrowTime; }
+  set chairThrowTime(value) { this.player.chairThrowTime = value; }
+  get property() { return this.player.property; }
+  set property(value) { this.player.property = value; }
+  // Bombas no chao sabem de quem sao: o heroi assina 'player', os demais o proprio id.
+  // Pavio queimando na mao: vale para o heroi e para um convidado.
+  tickHeld(f, dt) {
+    if (!f.heldBomb) return;
+    f.heldBomb.heldTime += dt;
+    f.heldBomb.fuse -= dt;
+    if (f.heldBomb.fuse > 0) return;
+    f.heldBomb = null;
+    const b = { id: ++this.serial, x: f.x, z: f.z, y: 0.72, owner: this.ownerOf(f), range: this.range, fuse: 0 };
+    this.bombs.push(b);
+    this.explode(b);
+    if (f === this.player) {
+      this.hurtPlayer(2, { unblockable: true, ignoreInvulnerable: true });
+      this.notice = 'EXPLODIU NA MÃO!';
+      this.noticeTime = 2;
+    } else this.hurtEnemy(f, this.ownerOf(f), 2);
+  }
+  // O heroi guarda o personagem escolhido em this.character; os demais na propria pele.
+  // Relogios do especial: cada lutador queima os seus.
+  tickSpecialTimers(f, dt) {
+    for (const key of ['bookTime','remoteTime','flagTime','actionAnim','specialCooldown','dashTime','swordTime','swordSwing','equipTime','chairThrowTime'])
+      f[key] = Math.max(0, f[key] - dt);
+    f.swordCooldown -= dt;
+    f.specialCharge = Math.min(1, f.specialCharge + dt / 22);
+    if (f.property) {
+      f.property.time -= dt;
+      if (f.property.time <= 0) f.property = null;
+    }
+  }
+  // Acoes de quem e controlado por gente, a partir do input do quadro.
+  // Vale para um convidado e, no servidor, tambem para o host.
+  applyHumanActions(f, input) {
+    if (input.yaw !== undefined) f.yaw = input.yaw;
+    if (input.pitch !== undefined) f.pitch = input.pitch;
+    const attack = !!(input.attack || input.throwBomb);
+    if (attack && !f.attackHeld) this.primaryPress(f);
+    else if (!attack && f.attackHeld) this.releaseBomb(false, f);
+    f.attackHeld = attack;
+    const plant = !!input.plant;
+    if (plant && !f.plantHeld && this.beginHold(f)) this.releaseBomb(true, f);
+    f.plantHeld = plant;
+    const useSpecial = !!input.special;
+    if (useSpecial && !f.specialHeld) this.special(f);
+    f.specialHeld = useSpecial;
+  }
+  characterOf(f) { return f === this.player ? this.character : f.skin; }
+  ownerOf(f) { return f === this.player ? 'player' : f.id; }
+  bombStock(f) {
+    const owner = this.ownerOf(f);
+    return Math.max(0, 3 - this.bombs.filter((b) => b.owner === owner).length - (f.heldBomb ? 1 : 0));
+  }
+  // Prepara a partida para o multiplayer. `remote` = copia de cliente (so desenha).
+  // A invasao fica de fora enquanto nao houver sincronia do estado dela.
+  setNetworked({ remote = false } = {}) {
+    this.networked = true;
+    this.remote = remote;
+    return this;
+  }
+  // Entrega um lutador a uma pessoa: ele ganha a pele escolhida, os mesmos tres
+  // coracoes do heroi e deixa de rodar a IA.
+  claimFighter(index, character = null) {
+    const f = this.fighter(index);
+    if (!f) return null;
+    f.human = true;
+    f.hp = Math.max(f.hp, 3);
+    if (character !== null && character !== undefined) f.skin = character;
+    return f;
+  }
+  fighter(index) {
+    return index === 0 ? this.player : this.enemies[index - 1] || null;
   }
   solid(x, z) {
     return (
@@ -380,48 +560,53 @@ export class Match {
     this.events.push({ type: 'bomb', bomb: b });
     return b;
   }
-  primaryPress() {
+  primaryPress(f = this.player) {
     if(this.speechTime>0)return false;
-    if(this.flight)return vampireDive(this);
-    if(this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
-    if(this.swordTime>0)return this.swingSword();
-    if(this.chairReady)return this.throwChair();
-    return this.beginHold();
+    // O voo ainda e do heroi local; espada e cadeira valem para qualquer dono.
+    if(f===this.player&&this.flight)return vampireDive(this);
+    if(this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||f.hp<=0)return false;
+    if(f.swordTime>0)return this.swingSword(f);
+    if(f.chairReady)return this.throwChair(f);
+    return this.beginHold(f);
   }
-  swingSword() {
-    if(this.swordTime<=0||this.swordCooldown>0||this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
-    this.swordCooldown=.24;this.swordSwing=.2;
-    const p=this.player;
-    const victim=this.enemies.find(e=>!this.sameTeam(e,p)&&e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
+  swingSword(f = this.player) {
+    if(f.swordTime<=0||f.swordCooldown>0||this.phase!=='playing'||this.countdown>0||this.invasion.stage==='arrival'||f.hp<=0)return false;
+    f.swordCooldown=.24;f.swordSwing=.2;
+    const p=f;
+    const victim=[this.player,...this.enemies].find(e=>e!==f&&!this.sameTeam(e,p)&&e.hp>0&&e.invulnerable<=0&&Math.hypot(e.x-p.x,e.z-p.z)<1.55&&
       (-(e.x-p.x)*Math.sin(p.yaw)-(e.z-p.z)*Math.cos(p.yaw))>Math.hypot(e.x-p.x,e.z-p.z)*.5&&clearSight(this,p,e));
-    const hit=victim&&this.hurtEnemy(victim,'special',SPECIAL_DAMAGE);
+    const hit=victim&&(victim===this.player?this.hurtPlayer(SPECIAL_DAMAGE):this.hurtEnemy(victim,this.ownerOf(f)==='player'?'special':this.ownerOf(f),SPECIAL_DAMAGE));
     if(hit)victim.invulnerable=.22;
     this.events.push({type:hit?'sword-hit':'sword-swing'});return true;
   }
-  beginHold() {
-    if(this.flight||this.speechTime>0)return false;
+  beginHold(f = this.player) {
+    if(this.speechTime>0)return false;
+    if(f===this.player&&this.flight)return false;
     if (
       this.invasion.stage === 'arrival' ||
       this.phase !== 'playing' ||
       this.countdown > 0 ||
-      this.heldBomb ||
-      this.cooldown > 0 ||
-      this.bombs.filter((b) => b.owner === 'player').length >= 3
+      f.heldBomb ||
+      f.cooldown > 0 ||
+      this.bombs.filter((b) => b.owner === this.ownerOf(f)).length >= 3
     )
       return false;
-    this.heldBomb = { fuse: FUSE, heldTime: 0 };
-    this.events.push({ type: 'pin' });
+    f.heldBomb = { fuse: FUSE, heldTime: 0 };
+    if (f === this.player) this.events.push({ type: 'pin' });
     return true;
   }
-  releaseBomb(planted = false) {
-    if (this.invasion.stage === 'arrival') { this.pendingRelease = planted; return false; }
-    if (this.phase !== 'playing' || !this.heldBomb) return false;
-    const h = this.heldBomb;
-    this.heldBomb = null;
+  releaseBomb(planted = false, f = this.player) {
+    if (this.invasion.stage === 'arrival') {
+      if (f === this.player) { this.pendingRelease = planted; return false; }
+      return false;
+    }
+    if (this.phase !== 'playing' || !f.heldBomb) return false;
+    const h = f.heldBomb;
+    f.heldBomb = null;
     const motion = planted
       ? {
-          x: this.player.x,
-          z: this.player.z,
+          x: f.x,
+          z: f.z,
           y: 0.23,
           vx: 0,
           vy: 0,
@@ -429,32 +614,27 @@ export class Match {
           moving: false,
           flight: 0,
         }
-      : launchState(this.player, h.heldTime);
+      : launchState(f, h.heldTime);
     const b = {
       id: ++this.serial,
       ...motion,
-      owner: 'player',
+      owner: this.ownerOf(f),
       range: this.range,
       fuse: h.fuse,
       maxFuse: FUSE,
     };
     this.bombs.push(b);
-    this.cooldown = 0.18;
-    this.events.push({ type: 'throw' });
+    f.cooldown = 0.18;
+    if (f === this.player) this.events.push({ type: 'throw' });
     return true;
   }
   throwBomb(planted = false) {
     if (!this.heldBomb && !this.beginHold()) return false;
     return this.releaseBomb(planted);
   }
-  trajectory() {
-    return this.heldBomb
-      ? predictThrow(
-          this.player,
-          this.map,
-          this.heldBomb.heldTime,
-          this.heldBomb.fuse,
-        )
+  trajectory(f = this.player) {
+    return f.heldBomb
+      ? predictThrow(f, this.map, f.heldBomb.heldTime, f.heldBomb.fuse)
       : null;
   }
   resolveWinner() {
@@ -528,7 +708,7 @@ export class Match {
       this.events.push({ type: 'shield-block' });
       return false;
     }
-    p.hp = Math.max(0, p.hp - amount);
+    if (!this.remote) p.hp = Math.max(0, p.hp - amount);
     p.invulnerable = 1.6;
     this.damageFlash = 0.55;
     this.events.push({ type: 'hurt' });
@@ -536,8 +716,10 @@ export class Match {
   }
   hurtEnemy(enemy, owner = 'special', amount = 1, {continuous=false} = {}) {
     if (!enemy || enemy.hp <= 0 || (!continuous&&enemy.invulnerable > 0) || this.friendlyDamage(enemy,owner)) return false;
-    enemy.hp = Math.max(0, enemy.hp - amount);
-    if(enemy.hp<1e-7)enemy.hp=0;
+    if (!this.remote) {
+      enemy.hp = Math.max(0, enemy.hp - amount);
+      if (enemy.hp < 1e-7) enemy.hp = 0;
+    }
     if(!continuous)enemy.invulnerable = 0.9;
     const credited = owner === 'player' || owner === 'special';
     if(!continuous||enemy.hp<=0)this.events.push({ type: 'hit', id: enemy.id, x: enemy.x, z: enemy.z, credited, lethal: enemy.hp <= 0 });
@@ -546,18 +728,20 @@ export class Match {
       this.hitText = enemy.hp <= 0 ? `${NAMES[enemy.skin]} ELIMINADO +500` : `${NAMES[enemy.skin]} · -${amount} CORAÇÕES`;
     }
     if (enemy.hp <= 0) {
-      if (credited) this.kills++;
-      this.score += credited ? 500 : 200;
-      this.chaos = Math.min(100, this.chaos + 12);
-      this.specialCharge = Math.min(1, this.specialCharge + 0.2);
       this.events.push({ type: 'defeat', id: enemy.id, x: enemy.x, z: enemy.z });
-      this.notice = ['CASSADO PELO CAOS!', 'MANDATO ENCERRADO!', 'VIROU CONFETE!'][Math.floor(this.random() * 3)];
-      this.noticeTime = 1.7;
+      if (!this.remote) {
+        if (credited) this.kills++;
+        this.score += credited ? 500 : 200;
+        this.chaos = Math.min(100, this.chaos + 12);
+        this.specialCharge = Math.min(1, this.specialCharge + 0.2);
+        this.notice = ['CASSADO PELO CAOS!', 'MANDATO ENCERRADO!', 'VIROU CONFETE!'][Math.floor(this.random() * 3)];
+        this.noticeTime = 1.7;
+      }
     }
     return true;
   }
-  releaseStoredWind() {
-    const p = this.player;
+  releaseStoredWind(f = this.player) {
+    const p = f;
     p.wind = 0;
     for (let n = 1; n <= 6; n++) {
       const x = Math.round(p.x - Math.sin(p.yaw) * n),
@@ -578,89 +762,92 @@ export class Match {
     this.noticeTime = 2;
     this.events.push({ type: 'wind-release', x: p.x, z: p.z, yaw: p.yaw });
   }
-  hypnosisTarget() {
-    if(this.character!==4||this.bookTime<=0)return null;
-    return this.enemies.filter(e=>e.hp>0&&!this.sameTeam(e,this.player)&&!(e.stun>0)&&Math.hypot(e.x-this.player.x,e.z-this.player.z)<=4.5&&faces(this.player,e,.85)&&faces(e,this.player,.5)&&clearSight(this,this.player,e)).sort((a,b)=>Math.hypot(a.x-this.player.x,a.z-this.player.z)-Math.hypot(b.x-this.player.x,b.z-this.player.z))[0]||null;
+  hypnosisTarget(f = this.player) {
+    if(this.characterOf(f)!==4||f.bookTime<=0)return null;
+    return [this.player,...this.enemies].filter(e=>e!==f&&e.hp>0&&!this.sameTeam(e,f)&&!(e.stun>0)&&Math.hypot(e.x-f.x,e.z-f.z)<=4.5&&faces(f,e,.85)&&faces(e,f,.5)&&clearSight(this,f,e)).sort((a,b)=>Math.hypot(a.x-f.x,a.z-f.z)-Math.hypot(b.x-f.x,b.z-f.z))[0]||null;
   }
-  occupationPreview() {
-    const p=this.player,fx=Math.abs(Math.sin(p.yaw))>Math.abs(Math.cos(p.yaw))?-Math.sign(Math.sin(p.yaw)):0,fz=fx===0?-Math.sign(Math.cos(p.yaw)):0;
+  occupationPreview(f = this.player) {
+    const p=f,fx=Math.abs(Math.sin(p.yaw))>Math.abs(Math.cos(p.yaw))?-Math.sign(Math.sin(p.yaw)):0,fz=fx===0?-Math.sign(Math.cos(p.yaw)):0;
     const cx=Math.round(p.x+fx*2),cz=Math.round(p.z+fz*2);
     return [-1,0,1].map(n=>({x:cx-fz*n,z:cz+fx*n})).map(spot=>({...spot,valid:spot.x>0&&spot.x<SIZE-1&&spot.z>0&&spot.z<SIZE-1&&this.map[spot.z][spot.x]===0&&clearSight(this,p,spot)&&![p,...this.enemies.filter(e=>e.hp>0)].some(a=>Math.abs(a.x-spot.x)<.8&&Math.abs(a.z-spot.z)<.8)&&!this.bombs.some(b=>cell(b.x,b.z)===cell(spot.x,spot.z))}));
   }
-  useEquippedSpecial() {
-    const p=this.player;
-    if(this.specialCooldown>0)return false;
-    if(this.character===2&&p.wind>0) {this.releaseStoredWind();return true;}
-    if(this.character===3&&p.vampire>0) {
-      return vampireDive(this);
+  useEquippedSpecial(f = this.player) {
+    const p=f,character=this.characterOf(f);
+    if(f.specialCooldown>0)return false;
+    if(character===2&&p.wind>0) {this.releaseStoredWind(f);return true;}
+    if(character===3&&p.vampire>0) {
+      // O voo ainda depende de estado global; so o heroi local voa.
+      return f===this.player?vampireDive(this):false;
     }
-    if(this.character===4&&this.bookTime>0) {
-      const target=this.hypnosisTarget();this.actionAnim=.5;this.specialCooldown=.6;
+    if(character===4&&f.bookTime>0) {
+      const target=this.hypnosisTarget(f);f.actionAnim=.5;f.specialCooldown=.6;
       this.events.push({type:target?'hypnosis':'book-miss',x:target?.x??p.x,z:target?.z??p.z});
       if(!target){this.notice='ELE PRECISA OLHAR PARA A CARTEIRA!';this.noticeTime=1.2;return false;}
-      target.stun=HYPNOSIS_SECONDS;target.stunKind='hypnosis';target.target=null;target.vx=0;target.vz=0;this.bookTime=0;
+      target.stun=HYPNOSIS_SECONDS;target.stunKind='hypnosis';target.target=null;target.vx=0;target.vz=0;f.bookTime=0;
       this.specialEffects.push({id:++this.serial,kind:'spirit',skin:target.skin,x:target.x,z:target.z,time:HYPNOSIS_SECONDS,max:HYPNOSIS_SECONDS});
       this.notice='HIPNOTIZADO POR 5s · JOGUE A BOMBA!';this.noticeTime=2.5;return true;
     }
-    if(this.character===5&&this.remoteTime>0) {
-      const bombs=this.bombs.filter(b=>b.owner==='player');
+    if(character===5&&f.remoteTime>0) {
+      const bombs=this.bombs.filter(b=>b.owner===this.ownerOf(f));
       if(!bombs.length){this.notice='PLANTE OU LANCE UMA BOMBA PRIMEIRO';this.noticeTime=1.5;return false;}
       for(const b of bombs){b.damage=SPECIAL_DAMAGE;b.fuse=Math.min(b.fuse,.25);}
-      this.remoteTime=0;this.actionAnim=.65;this.notice='MISSÃO: DETONAR · 2 CORAÇÕES!';this.noticeTime=2;this.events.push({type:'remote-trigger'});return true;
+      f.remoteTime=0;f.actionAnim=.65;this.notice='MISSÃO: DETONAR · 2 CORAÇÕES!';this.noticeTime=2;this.events.push({type:'remote-trigger'});return true;
     }
-    if(this.character===7&&this.flagTime>0) {
-      const spots=this.occupationPreview().filter(s=>s.valid);
+    if(character===7&&f.flagTime>0) {
+      const spots=this.occupationPreview(f).filter(s=>s.valid);
       if(!spots.length){this.notice='MIRE NUM ESPAÇO LIVRE';this.noticeTime=1;return false;}
       for(const {x,z} of spots){this.map[z][x]=3;const b={id:++this.serial,x,z,time:8};this.barricades.push(b);this.events.push({type:'barricade',...b});}
-      this.flagTime=0;this.actionAnim=.7;this.notice='OCUPADO POR 8s · USE A COBERTURA!';this.noticeTime=2;this.events.push({type:'flag-plant'});return true;
+      f.flagTime=0;f.actionAnim=.7;this.notice='OCUPADO POR 8s · USE A COBERTURA!';this.noticeTime=2;this.events.push({type:'flag-plant'});return true;
     }
-    if(this.character===8&&this.chairReady)return this.throwChair();
+    if(character===8&&f.chairReady)return this.throwChair(f);
     return false;
   }
-  special() {
-    if(this.speechTime>0||(this.character===1&&this.poison))return false;
-    if(this.invasion.stage==='arrival'||this.phase!=='playing'||this.countdown>0||this.player.hp<=0||this.heldBomb)return false;
-    if(equipment(this).ready)return this.useEquippedSpecial();
+  special(f = this.player) {
+    const character = this.characterOf(f);
+    if(this.speechTime>0||(character===1&&this.poison))return false;
+    if(this.invasion.stage==='arrival'||this.phase!=='playing'||this.countdown>0||f.hp<=0||f.heldBomb)return false;
+    if(equipment(this,f).ready)return this.useEquippedSpecial(f);
     if (
       this.invasion.stage === 'arrival' ||
       this.phase !== 'playing' ||
       this.countdown > 0 ||
-      this.player.hp <= 0 ||
-      (this.specialCharge < 1 && this.specialItems < 1)
+      f.hp <= 0 ||
+      (f.specialCharge < 1 && f.specialItems < 1)
     )
       return false;
-    const item = this.specialItems>0;
-    if(item) this.specialItems--; else this.specialCharge = 0;
-    this.quoteTime = 0;
-    this.equipTime=.45;
-    this.speak();
-    const p = this.player;
-    if (this.character === 0) {
+    // Fala e voo ainda dependem de estado unico da partida: so o heroi local os usa.
+    if((character===1||character===3)&&f!==this.player)return false;
+    const item = f.specialItems>0;
+    if(item) f.specialItems--; else f.specialCharge = 0;
+    f.equipTime=.45;
+    if(f===this.player){this.quoteTime=0;this.speak();}
+    const p = f;
+    if (character === 0) {
       p.picanha = 3;
       p.picanhaTime = 4;
       this.notice = 'PICANHA PARA TODOS!';
     }
-    if (this.character === 1) {
+    if (character === 1) {
       startSpeech(this);
       this.notice = 'PRONUNCIAMENTO · PREPARE O ANTÍDOTO!';
     }
-    if (this.character === 2) {
+    if (character === 2) {
       p.wind = 8;
       this.notice = 'POTE DE VENTO · E PARA SOLTAR!';
     }
-    if (this.character === 3) {
+    if (character === 3) {
       startFlight(this);
       this.notice = 'VOO LIVRE · Q TROCA ALVO · E MERGULHA!';
     }
-    if(this.character===4){this.bookTime=10;this.notice='CARTEIRA NA MÃO · ESPERE O OLHAR E APERTE E!';}
-    if(this.character===5){this.remoteTime=12;this.notice='RÁDIO PRONTO · PLANTE BOMBAS, DEPOIS E!';}
-    if (this.character === 6) {
-      this.swordTime=8;this.swordCooldown=0;this.notice='LÂMINA EQUIPADA · CLIQUE PARA GOLPEAR!';
-      if(!item)this.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };
+    if(character===4){f.bookTime=10;this.notice='CARTEIRA NA MÃO · ESPERE O OLHAR E APERTE E!';}
+    if(character===5){f.remoteTime=12;this.notice='RÁDIO PRONTO · PLANTE BOMBAS, DEPOIS E!';}
+    if (character === 6) {
+      f.swordTime=8;f.swordCooldown=0;this.notice='LÂMINA EQUIPADA · CLIQUE PARA GOLPEAR!';
+      if(!item)f.property = { x: p.x, z: p.z, radius: 2.35, time: 8 };
     }
-    if(this.character===7){this.flagTime=10;this.notice='BANDEIRA NA MÃO · MIRE E APERTE E!';}
-    if (this.character === 8) {
-      this.chairReady=true;
+    if(character===7){f.flagTime=10;this.notice='BANDEIRA NA MÃO · MIRE E APERTE E!';}
+    if (character === 8) {
+      f.chairReady=true;
       this.notice = 'CADEIRA NA MÃO · CLIQUE PARA ARREMESSAR!';
     }
     this.noticeTime = 2.6;
@@ -669,11 +856,11 @@ export class Match {
   }
   cycleTarget(){return cycleVampireTarget(this);}
   diveTarget(id){return vampireDive(this,id);}
-  throwChair() {
-    if(!this.chairReady||this.heldBomb||this.countdown>0||this.phase!=='playing'||this.invasion.stage==='arrival'||this.player.hp<=0)return false;
-    const p=this.player,speed=8.5;
-    this.chairReady=false;this.chairThrowTime=.35;
-    this.chairs.push({id:++this.serial,x:p.x,z:p.z,vx:-Math.sin(p.yaw)*speed,vz:-Math.cos(p.yaw)*speed,time:2,bounces:1});
+  throwChair(f = this.player) {
+    if(!f.chairReady||f.heldBomb||this.countdown>0||this.phase!=='playing'||this.invasion.stage==='arrival'||f.hp<=0)return false;
+    const p=f,speed=8.5;
+    f.chairReady=false;f.chairThrowTime=.35;
+    this.chairs.push({id:++this.serial,x:p.x,z:p.z,vx:-Math.sin(p.yaw)*speed,vz:-Math.cos(p.yaw)*speed,time:2,bounces:1,thrower:this.ownerOf(f)});
     this.notice='CADEIRA VOADORA!';this.noticeTime=1.5;this.events.push({type:'chair-throw'});return true;
   }
   explode(b) {
@@ -687,8 +874,8 @@ export class Match {
       if (this.map[z][x] === 2) {
         this.map[z][x] = 0;
         this.events.push({ type: 'crate', x, z });
-        if (b.owner === 'player' || b.owner === 'special') this.score += 25;
-        if (this.random() < 0.29)
+        if (!this.remote && (b.owner === 'player' || b.owner === 'special')) this.score += 25;
+        if (!this.remote && this.random() < 0.29)
           this.items.push({
             id: ++this.serial,
             x,
@@ -759,7 +946,8 @@ export class Match {
     }
     return null;
   }
-  tick(dt, input = {}) {
+  tick(dt, rawInputs = {}) {
+    const inputs = normalizeInputs(rawInputs), input = inputs[0] || {};
     if (!['playing', 'spectating'].includes(this.phase)) return;
     dt = Math.min(dt, 0.05);
     if (this.countdown > 0) {
@@ -768,20 +956,21 @@ export class Match {
     }
     // Every contestant, bomb fuse and match clock pauses for the shared flyby.
     if(tickSpeech(this,dt))return;
-    if (this.invasion.tick(this, dt)) return;
+    if (this.remote) {
+      // O estado vem do servidor; aqui so respeitamos a pausa da chegada.
+      if (this.invasion.stage === 'arrival') return;
+    } else if (this.invasion.tick(this, dt)) return;
     if (this.pendingRelease !== null) { const planted=this.pendingRelease;this.pendingRelease=null;this.releaseBomb(planted); }
     this.hitMarker = Math.max(0, this.hitMarker - dt);
     this.damageFlash = Math.max(0, this.damageFlash - dt);
     this.shieldFlash = Math.max(0, this.shieldFlash - dt);
     const p = this.player;
     this.elapsed += dt;
-    for(const key of ['bookTime','remoteTime','flagTime','actionAnim','specialCooldown','dashTime'])this[key]=Math.max(0,this[key]-dt);
+    this.tickSpecialTimers(p, dt);
     for(const effect of this.specialEffects)effect.time-=dt;
     this.specialEffects=this.specialEffects.filter(e=>e.time>0);
-    this.swordTime=Math.max(0,this.swordTime-dt);this.swordCooldown-=dt;this.swordSwing=Math.max(0,this.swordSwing-dt);
-    this.equipTime=Math.max(0,this.equipTime-dt);this.chairThrowTime=Math.max(0,this.chairThrowTime-dt);
     if(input.attack&&this.swordTime>0)this.swingSword();
-    if(this.elapsed>=this.nextSpecialItem) {
+    if(!this.remote&&this.elapsed>=this.nextSpecialItem) {
       this.nextSpecialItem=this.elapsed+18+this.random()*12;
       if(this.items.filter(i=>i.type>=3).length<3) {
         const spots=[],danger=this.danger();
@@ -790,7 +979,6 @@ export class Match {
       }
     }
     this.cooldown -= dt;
-    this.specialCharge = Math.min(1, this.specialCharge + dt / 22);
     this.quoteTime -= dt;
     if (this.quoteTime <= 0) this.quote = '';
     this.noticeTime -= dt;
@@ -804,10 +992,6 @@ export class Match {
     if (p.picanhaTime <= 0) p.picanha = 0;
     p.wind = Math.max(0, p.wind - dt);
     p.ram = Math.max(0, p.ram - dt);
-    if (this.property) {
-      this.property.time -= dt;
-      if (this.property.time <= 0) this.property = null;
-    }
     for (const decoy of this.decoys) decoy.time -= dt;
     this.decoys = this.decoys.filter((decoy) => decoy.time > 0);
     for (const barrier of this.barricades.slice()) {
@@ -818,47 +1002,14 @@ export class Match {
         this.events.push({ type: 'barricade-end', id: barrier.id });
       }
     }
-    const forward = this.dashTime>0 ? 1 : (input.forward ? 1 : 0) - (input.back ? 1 : 0),
-      side = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    const length = Math.hypot(forward, side) || 1,
-      speed = (this.dashTime>0 ? 6 : input.run ? 3.3 : 2.5) * (p.turbo > 0&&this.dashTime<=0 ? 1.5 : 1),
-      blend = 1 - Math.exp(-(forward || side ? 22 : 36) * dt);
-    const active = p.hp > 0 && this.phase === 'playing';
-    tickGlobalSpecials(this,dt,input);
-    p.vx +=
-      (active
-        ? ((-Math.sin(p.yaw) * forward + Math.cos(p.yaw) * side) / length) *
-            speed -
-          p.vx
-        : -p.vx) * blend;
-    p.vz +=
-      (active
-        ? ((-Math.cos(p.yaw) * forward - Math.sin(p.yaw) * side) / length) *
-            speed -
-          p.vz
-        : -p.vz) * blend;
-    if (active) this.move(p, p.vx * dt, p.vz * dt);
-    if (this.heldBomb) {
-      this.heldBomb.heldTime += dt;
-      this.heldBomb.fuse -= dt;
-      if (this.heldBomb.fuse <= 0) {
-        this.heldBomb = null;
-        const b = {
-          id: ++this.serial,
-          x: p.x,
-          z: p.z,
-          y: 0.72,
-          owner: 'player',
-          range: this.range,
-          fuse: 0,
-        };
-        this.bombs.push(b);
-        this.explode(b);
-        this.hurtPlayer(2, { unblockable: true, ignoreInvulnerable: true });
-        this.notice = 'EXPLODIU NA MÃO!';
-        this.noticeTime = 2;
-      }
-    }
+    // Numa partida em rede, o servidor e quem traduz o input do host em acao:
+    // o cliente dele so preve localmente e nao tem autoridade nenhuma.
+    if (this.networked && !this.remote) this.applyHumanActions(p, input);
+    driveFighter(this, p, input, dt, {
+      dash: this.dashTime,
+      beforeApply: () => tickGlobalSpecials(this, dt, input),
+    });
+    this.tickHeld(p, dt);
     this.physicsAccumulator += dt;
     while (this.physicsAccumulator >= PHYSICS_STEP) {
       for (const b of this.bombs.slice()) {
@@ -917,8 +1068,36 @@ export class Match {
     for (const f of this.fires) f.life -= dt;
     this.fires = this.fires.filter((f) => f.life > 0);
     const hazard = this.danger();
-    for (const e of this.enemies) {
+        for (let enemyIdx = 0; enemyIdx < this.enemies.length; enemyIdx++) {
+      const e = this.enemies[enemyIdx];
       if (e.hp <= 0) continue;
+      
+      // Rival com dono humano: mesma fisica do heroi, IA desligada.
+      const pInput = e.human ? inputs[enemyIdx + 1] : null;
+      // Em modo remoto NINGUEM decide aqui: nem o bot nem o dono de outra tela.
+      // Rodar a IA no cliente consumiria o sorteio e faria as partidas se separarem.
+      if (!pInput && (this.remote || e.human)) {
+        e.cooldown = Math.max(0, e.cooldown - dt);
+        e.invulnerable = Math.max(0, e.invulnerable - dt);
+        e.stun = Math.max(0, e.stun - dt);
+        if (e.stun <= 0) e.stunKind = null;
+        continue;
+      }
+      if (pInput) {
+        if (pInput.yaw !== undefined) e.yaw = pInput.yaw;
+        if (pInput.pitch !== undefined) e.pitch = pInput.pitch;
+        e.invulnerable = Math.max(0, e.invulnerable - dt);
+        e.shield = Math.max(0, e.shield - dt);
+        e.turbo = Math.max(0, e.turbo - dt);
+        e.stun = Math.max(0, e.stun - dt);
+        if (e.stun <= 0) e.stunKind = null;
+        e.cooldown = Math.max(0, e.cooldown - dt);
+        driveFighter(this, e, pInput, dt);
+        this.tickSpecialTimers(e, dt);
+        this.applyHumanActions(e, pInput);
+        this.tickHeld(e, dt);
+        continue;
+      }
       e.invulnerable = Math.max(0, e.invulnerable - dt);
       e.ramCooldown = Math.max(0, (e.ramCooldown || 0) - dt);
       e.stun=Math.max(0,(e.stun||0)-dt);
@@ -1050,7 +1229,7 @@ export class Match {
         this.noticeTime = 1.8;
         this.events.push({ type: 'pickup' });
       }
-    if (this.elapsed >= this.nextStorm) {
+    if (!this.remote && this.elapsed >= this.nextStorm) {
       this.nextStorm += this.mode === 'caos' ? 22 : 40;
       this.notice = 'CHUVA DE PROMESSAS!';
       this.noticeTime = 3;
@@ -1070,7 +1249,9 @@ export class Match {
       }
     }
     this.chaos = Math.min(100, this.chaos + dt * 0.08);
-    if (p.hp <= 0 && this.phase === 'playing') {
+    // Numa partida em rede a fase e da partida inteira: cada cliente decide
+    // sozinho quando vai para a arquibancada, olhando o proprio boneco.
+    if (!this.networked && p.hp <= 0 && this.phase === 'playing') {
       this.phase = 'spectating';
       this.heldBomb = null;
       this.events.push({ type: 'spectate' });
@@ -1104,7 +1285,8 @@ export class Match {
     this.resolveWinner();
   }
 
-  snapshot() {
+  snapshot(viewIndex = 0) {
+    const me = this.fighter(viewIndex) || this.player;
     return {
       ...globalSpecialSnapshot(this),
       phase: this.phase,
@@ -1116,42 +1298,37 @@ export class Match {
       arena: this.arena,
       arenaRoll: arenaRoll(this.countdown,this.arenaIndex),
       arenaOptions: ARENA_PREVIEWS,
-      holding: !!this.heldBomb,
-      fuse: this.heldBomb ? Math.max(0, this.heldBomb.fuse) : 0,
-      power: this.heldBomb ? Math.min(1, this.heldBomb.heldTime / 0.95) : 0,
+      holding: !!me.heldBomb,
+      fuse: me.heldBomb ? Math.max(0, me.heldBomb.fuse) : 0,
+      power: me.heldBomb ? Math.min(1, me.heldBomb.heldTime / 0.95) : 0,
       winner: this.winner,
       overtime: this.overtime,
       hitMarker: this.hitMarker,
       hitText: this.hitText,
       damageFlash: this.damageFlash,
       shieldFlash: this.shieldFlash,
-      hp: this.player.hp,
+      hp: me.hp,
       kills: this.kills,
       score: this.score,
       time: Math.max(0, 180 - this.elapsed),
-      bombs: Math.max(
-        0,
-        3 -
-          this.bombs.filter((b) => b.owner === 'player').length -
-          (this.heldBomb ? 1 : 0),
-      ),
-      special: equipment(this).ready||this.specialItems>0?1:this.specialCharge,
-      equipment:equipment(this),hypnosisReady:!!this.hypnosisTarget(),hypnotized:this.enemies.filter(e=>e.stunKind==='hypnosis'&&e.stun>0).map(e=>({id:e.id,name:NAMES[e.skin],time:e.stun})),
-      chairReady:this.chairReady,
-      specialItems: this.specialItems, swordTime: this.swordTime,
+      bombs: this.bombStock(me),
+      special: equipment(this,me).ready||me.specialItems>0?1:me.specialCharge,
+      equipment:equipment(this,me),hypnosisReady:!!this.hypnosisTarget(me),hypnotized:this.enemies.filter(e=>e.stunKind==='hypnosis'&&e.stun>0).map(e=>({id:e.id,name:NAMES[e.skin],time:e.stun})),
+      chairReady:me.chairReady,
+      specialItems: me.specialItems, swordTime: me.swordTime,
       chaos: this.chaos,
-      enemies: this.enemies.filter((e) => e.hp > 0&&!this.sameTeam(e,this.player)).length,
+      enemies: [this.player, ...this.enemies].filter((e) => e !== me && e.hp > 0 && !this.sameTeam(e, me)).length,
       quote: this.quote,
       event: this.notice,
       combo: this.combo,
-      shield: this.player.shield > 0,
-      shieldTime: this.player.shield,
-      picanha: this.player.picanha,
-      picanhaTime: this.player.picanhaTime,
-      windTime: this.player.wind,
-      vampireTime: this.player.vampire,
-      ramTime: this.player.ram,
-      propertyTime: this.property?.time || 0,
+      shield: me.shield > 0,
+      shieldTime: me.shield,
+      picanha: me.picanha,
+      picanhaTime: me.picanhaTime,
+      windTime: me.wind,
+      vampireTime: me.vampire,
+      ramTime: me.ram,
+      propertyTime: me.property?.time || 0,
       decoys: this.decoys.length,
       barricades: this.barricades.length,
       wave: 1,

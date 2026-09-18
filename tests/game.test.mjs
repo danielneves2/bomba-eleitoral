@@ -18,6 +18,7 @@ import {
   advanceFrame,
   ARENAS,
   arenaRoll,
+  makeFighter,
 } from '../public/game/core.mjs';
 const names = [];
 const test = (name, fn) => {
@@ -810,4 +811,307 @@ test('pausing freezes poison, falling antidotes and gradual bites; reset clears 
 test('flight expires over a box without trapping the player and Bukele cannot capture it',()=>{
   const g=clean();g.character=3;g.special();Object.assign(g.player,{x:7,z:7});g.map[7][7]=2;g.invasion.kind='bukele';g.invasion.stage='active';Object.assign(g.invasion.actor,{x:7,z:7});g.invasion.tick(g,.05);assert.equal(g.invasion.cages.length,0);g.invasion.stage='done';g.player.vampire=.01;g.tick(.05);assert.equal(g.flight,null);assert.equal(g.solid(g.player.x,g.player.z),false);
 });
+
+// --- multiplayer: convidado e heroi precisam ser a mesma coisa ---
+function arena() {
+  const g = new Match(4);
+  g.reset(0, 'caos');
+  g.countdown = 0;
+  g.invasion.startsAt = 999;
+  return g;
+}
+test('heroi e rival nascem com exatamente o mesmo formato', () => {
+  const g = arena();
+  const heroFields = Object.keys(g.player).sort();
+  const rivalFields = Object.keys(g.enemies[0]).sort();
+  assert.deepEqual(rivalFields, heroFields);
+  assert.deepEqual(Object.keys(makeFighter()).sort(), heroFields);
+  assert.equal(typeof g.enemies[0].pitch, 'number');
+});
+test('claimFighter entrega pele escolhida, tres coracoes e desliga a IA', () => {
+  const g = arena();
+  const guest = g.claimFighter(1, 5);
+  assert.equal(guest, g.enemies[0]);
+  assert.equal(guest.skin, 5);
+  assert.equal(guest.hp, 3);
+  assert.equal(guest.human, true);
+  assert.equal(g.player.human, true);
+  assert.equal(g.enemies[1].human, false);
+});
+test('convidado cozinha e arremessa uma bomba que e dele', () => {
+  const g = arena();
+  const guest = g.claimFighter(1, 5);
+  assert.equal(g.bombStock(guest), 3);
+  g.tick(0.05, { 1: { attack: true } });
+  assert.ok(guest.heldBomb, 'segurar o botao precisa cozinhar a bomba');
+  assert.equal(g.bombStock(guest), 2);
+  assert.equal(g.bombStock(g.player), 3, 'o estoque do heroi nao pode ser tocado');
+  g.tick(0.05, { 1: {} });
+  assert.equal(guest.heldBomb, null);
+  const mine = g.bombs.filter((b) => b.owner === guest.id);
+  assert.equal(mine.length, 1);
+  assert.equal(g.bombs.filter((b) => b.owner === 'player').length, 0);
+});
+test('convidado planta no chao com o espaco', () => {
+  const g = arena();
+  const guest = g.claimFighter(1, 5);
+  g.tick(0.05, { 1: { plant: true } });
+  const planted = g.bombs.find((b) => b.owner === guest.id);
+  assert.ok(planted);
+  assert.equal(planted.moving, false);
+});
+test('o HUD responde ao ponto de vista de quem olha', () => {
+  const g = arena();
+  const guest = g.claimFighter(1, 5);
+  guest.hp = 1;
+  g.player.hp = 3;
+  assert.equal(g.snapshot(0).hp, 3);
+  assert.equal(g.snapshot(1).hp, 1);
+  g.tick(0.05, { 1: { attack: true } });
+  assert.equal(g.snapshot(1).holding, true);
+  assert.equal(g.snapshot(0).holding, false);
+  assert.equal(g.snapshot(1).bombs, 2);
+  assert.equal(g.snapshot(0).bombs, 3);
+});
+test('single player intacto: heldBomb e cooldown continuam no heroi', () => {
+  const g = arena();
+  assert.equal(g.heldBomb, null);
+  g.primaryPress();
+  assert.ok(g.heldBomb);
+  assert.equal(g.heldBomb, g.player.heldBomb);
+  g.releaseBomb();
+  assert.equal(g.heldBomb, null);
+  assert.equal(g.bombs.at(-1).owner, 'player');
+  assert.ok(g.cooldown > 0);
+  assert.equal(g.cooldown, g.player.cooldown);
+  assert.equal(g.snapshot().bombs, 2);
+});
+test('rival sem dono continua sendo bot e ignora input de jogador', () => {
+  const g = arena();
+  const bot = g.enemies[2];
+  const before = [bot.x, bot.z];
+  g.tick(0.05, { 3: { forward: true, attack: true } });
+  assert.equal(bot.heldBomb, null, 'bot nao cozinha bomba por input de gente');
+  assert.equal(bot.human, false);
+  assert.ok(Array.isArray(before));
+});
+
+test('modo remoto nao consome o sorteio nem inventa eventos', () => {
+  const a = new Match(77); a.reset(0, 'caos'); a.setNetworked({ remote: true });
+  const b = new Match(77); b.reset(0, 'caos'); b.setNetworked({ remote: true });
+  a.countdown = 0; b.countdown = 0;
+  // Duas telas com ritmos diferentes precisam terminar com o mesmo sorteio na agulha.
+  for (let i = 0; i < 120; i++) a.tick(0.05, { 1: { forward: true } });
+  for (let i = 0; i < 40; i++) b.tick(0.05);
+  assert.equal(a.random(), b.random(), 'o gerador nao pode andar em ritmos diferentes');
+  assert.equal(a.storm.length, 0, 'tempestade e do servidor');
+  assert.equal(a.items.length, 0, 'item e do servidor');
+});
+test('modo remoto nao aplica dano nem placar; quem manda e o servidor', () => {
+  const g = new Match(5); g.reset(0, 'caos'); g.setNetworked({ remote: true }); g.countdown = 0;
+  const alvo = g.enemies[0];
+  alvo.hp = 2;
+  assert.equal(g.hurtEnemy(alvo, 'player', 2), true, 'o efeito visual continua acontecendo');
+  assert.equal(alvo.hp, 2, 'o hp so muda quando o servidor mandar');
+  assert.equal(g.kills, 0);
+  assert.equal(g.score, 0);
+  g.player.invulnerable = 0;
+  g.hurtPlayer(1);
+  assert.equal(g.player.hp, 3, 'o hp do heroi tambem e do servidor');
+});
+test('modo remoto desliga a IA mas mantem a previsao do proprio boneco', () => {
+  const g = new Match(8); g.reset(0, 'caos'); g.setNetworked({ remote: true }); g.countdown = 0;
+  const guest = g.claimFighter(1, 5), bot = g.enemies[3];
+  const botAntes = [bot.x, bot.z], guestAntes = [guest.x, guest.z];
+  for (let i = 0; i < 20; i++) g.tick(0.05, { 1: { forward: true, yaw: 0 } });
+  assert.deepEqual([bot.x, bot.z], botAntes, 'bot remoto nao anda sozinho no cliente');
+  assert.notDeepEqual([guest.x, guest.z], guestAntes, 'o proprio boneco continua previsto');
+});
+test('single player continua sorteando, ferindo e pontuando', () => {
+  const g = new Match(5); g.reset(0, 'caos'); g.countdown = 0;
+  assert.equal(g.remote, false);
+  const alvo = g.enemies[0];
+  alvo.hp = 2; alvo.invulnerable = 0;
+  g.hurtEnemy(alvo, 'player', 2);
+  assert.equal(alvo.hp, 0);
+  assert.equal(g.kills, 1);
+  assert.ok(g.score >= 500);
+});
+
+test('invasao atravessa a rede e volta a apontar para os lutadores da copia', () => {
+  const servidor = new Match(31); servidor.reset(0, 'caos'); servidor.countdown = 0;
+  const cliente = new Match(31); cliente.reset(0, 'caos'); cliente.setNetworked({ remote: true }); cliente.countdown = 0;
+  const inv = servidor.invasion;
+  inv.kind = 'bukele'; inv.stage = 'active'; inv.remaining = 9; inv.wave = 2;
+  Object.assign(inv.actor, { x: 4, z: 6, state: 'hunting', charge: 1.2 });
+  inv.actor.target = servidor.enemies[1];
+  const vitima = servidor.enemies[0];
+  inv.cages = [{ id: 7, x: vitima.x, z: vitima.z, time: 4, victim: vitima }];
+  inv.captured = new Set([vitima]);
+  inv.targets = [{ id: 9, x: 3, z: 3, time: 1, duration: 2, radius: 0, victim: 'player' }];
+
+  const pacote = JSON.parse(JSON.stringify(inv.netState(servidor)));
+  cliente.invasion.applyNetState(cliente, pacote);
+
+  assert.equal(cliente.invasion.kind, 'bukele');
+  assert.equal(cliente.invasion.stage, 'active');
+  assert.equal(cliente.invasion.actor.x, 4);
+  assert.equal(cliente.invasion.actor.target, cliente.enemies[1], 'o alvo aponta para o boneco desta tela');
+  assert.equal(cliente.invasion.cages[0].victim, cliente.enemies[0], 'a gaiola prende o boneco desta tela');
+  assert.ok(cliente.invasion.captured.has(cliente.enemies[0]));
+  assert.equal(cliente.invasion.targets[0].victim, 'player');
+});
+test('gaiola sincronizada prende o boneco tambem na tela remota', () => {
+  const g = new Match(12); g.reset(0, 'caos'); g.setNetworked({ remote: true }); g.countdown = 0;
+  const preso = g.claimFighter(1, 5);
+  g.invasion.cages = [{ id: 1, x: preso.x, z: preso.z, time: 3, victim: preso }];
+  const antes = [preso.x, preso.z];
+  for (let i = 0; i < 20; i++) g.tick(0.05, { 1: { forward: true, yaw: 0 } });
+  assert.deepEqual([preso.x, preso.z], antes, 'preso nao anda nem com input');
+});
+test('a chegada do invasor congela a partida remota', () => {
+  const g = new Match(12); g.reset(0, 'caos'); g.setNetworked({ remote: true }); g.countdown = 0;
+  const guest = g.claimFighter(1, 5);
+  g.invasion.stage = 'arrival';
+  const antes = [guest.x, guest.z];
+  for (let i = 0; i < 20; i++) g.tick(0.05, { 1: { forward: true, yaw: 0 } });
+  assert.deepEqual([guest.x, guest.z], antes);
+  g.invasion.stage = 'active';
+  for (let i = 0; i < 20; i++) g.tick(0.05, { 1: { forward: true, yaw: 0 } });
+  assert.notDeepEqual([guest.x, guest.z], antes, 'passada a chegada, volta a andar');
+});
+test('single player continua rodando a invasao sozinho', () => {
+  const g = new Match(31); g.reset(0, 'caos'); g.countdown = 0;
+  assert.equal(g.remote, false);
+  assert.ok(Number.isFinite(g.invasion.startsAt), 'a invasao continua agendada');
+  const alvo = g.invasion.startsAt;
+  for (let i = 0; i < Math.ceil(alvo / 0.05) + 40; i++) g.tick(0.05);
+  assert.notEqual(g.invasion.stage, 'scheduled', 'a invasao precisa ter comecado sozinha');
+});
+
+function sala(skinConvidado) {
+  const g = new Match(21); g.reset(0, 'caos'); g.countdown = 0; g.invasion.startsAt = 1e9;
+  const guest = g.claimFighter(1, skinConvidado);
+  guest.x = 7; guest.z = 7; guest.yaw = 0;
+  return [g, guest];
+}
+test('convidado equipa e usa o proprio especial com a tecla E', () => {
+  const [g, guest] = sala(8); // Datena: cadeira
+  assert.equal(guest.specialCharge, 1);
+  g.tick(0.05, { 1: { special: true } });
+  assert.equal(guest.chairReady, true, 'E equipa a cadeira do convidado');
+  assert.equal(g.player.chairReady, false, 'o heroi nao pode ser afetado');
+  assert.equal(guest.specialCharge, 0, 'a carga gasta e a dele');
+  assert.ok(g.player.specialCharge > 0.9, 'a carga do heroi fica intacta');
+  g.tick(0.05, { 1: {} });
+  g.tick(0.05, { 1: { attack: true } });
+  assert.equal(g.chairs.length, 1, 'o clique arremessa a cadeira do convidado');
+  assert.equal(guest.chairReady, false);
+});
+test('cada lutador carrega o proprio relogio de especial', () => {
+  const [g, guest] = sala(6); // espada
+  g.tick(0.05, { 1: { special: true } });
+  assert.ok(guest.swordTime > 7, 'o convidado equipou a lamina');
+  assert.equal(g.player.swordTime, 0, 'o heroi continua sem lamina');
+  for (let i = 0; i < 40; i++) g.tick(0.05, { 1: {} });
+  assert.ok(guest.swordTime < 8 && guest.swordTime > 5, 'o relogio dele corre sozinho');
+});
+test('especial do convidado aparece no HUD dele, nao no do heroi', () => {
+  const [g, guest] = sala(8);
+  g.tick(0.05, { 1: { special: true } });
+  assert.equal(g.snapshot(1).chairReady, true);
+  assert.equal(g.snapshot(0).chairReady, false);
+  assert.equal(g.snapshot(1).special, 1, 'equipado conta como pronto na tela dele');
+  assert.ok(g.snapshot(0).special > 0.9);
+  assert.equal(g.snapshot(1).equipment.name, SPECIALS[8].name);
+  assert.equal(g.snapshot(0).equipment.name, SPECIALS[0].name);
+});
+test('bomba do convidado detona pelo radio sem tocar nas do heroi', () => {
+  const [g, guest] = sala(5); // Renan: radio
+  g.tick(0.05, { 1: { special: true } });
+  assert.ok(guest.remoteTime > 0);
+  g.beginHold(g.player); g.releaseBomb(true, g.player);
+  g.tick(0.05, { 1: { plant: true } });
+  const doHeroi = g.bombs.find((b) => b.owner === 'player');
+  const doConvidado = g.bombs.find((b) => b.owner === guest.id);
+  assert.ok(doHeroi && doConvidado, 'os dois plantaram');
+  const fuseHeroi = doHeroi.fuse;
+  g.tick(0.05, { 1: { special: true, plant: true } });
+  assert.ok(doConvidado.fuse <= 0.25, 'a dele foi detonada');
+  assert.ok(doHeroi.fuse >= fuseHeroi - 0.2, 'a do heroi nao foi tocada');
+});
+test('fala e voo continuam exclusivos do heroi local', () => {
+  const [g1, g1guest] = sala(1); // Bolsonaro: pronunciamento
+  g1.tick(0.05, { 1: { special: true } });
+  assert.equal(g1guest.specialCharge, 1, 'nada foi gasto, o especial foi recusado');
+  const [g2, g2guest] = sala(3); // vampiro: voo
+  g2.tick(0.05, { 1: { special: true } });
+  assert.equal(g2guest.specialCharge, 1);
+});
+test('single player: o especial do heroi continua igual', () => {
+  const g = new Match(21); g.reset(8, 'caos'); g.countdown = 0;
+  assert.equal(g.specialCharge, 1);
+  assert.equal(g.special(), true);
+  assert.equal(g.chairReady, true, 'o apelido continua valendo');
+  assert.equal(g.player.chairReady, true);
+  assert.equal(g.specialCharge, 0);
+  assert.equal(g.primaryPress(), true);
+  assert.equal(g.chairs.length, 1);
+});
+
+test('em rede, a morte do host nao manda os outros para a arquibancada', () => {
+  const servidor = new Match(44); servidor.reset(0, 'caos'); servidor.setNetworked({ remote: false });
+  servidor.countdown = 0; servidor.invasion.startsAt = 1e9;
+  servidor.claimFighter(1, 5);
+  servidor.player.hp = 0;
+  for (let i = 0; i < 10; i++) servidor.tick(0.05);
+  assert.equal(servidor.phase, 'playing', 'a partida continua para quem esta vivo');
+  assert.equal(servidor.snapshot(1).hp, 3, 'o convidado continua inteiro');
+});
+test('single player: morrer continua levando direto para a arquibancada', () => {
+  const g = new Match(44); g.reset(0, 'caos'); g.countdown = 0; g.invasion.startsAt = 1e9;
+  assert.equal(g.networked, false);
+  g.player.hp = 0;
+  g.tick(0.05);
+  assert.equal(g.phase, 'spectating');
+  assert.ok(g.events.some((e) => e.type === 'spectate'));
+});
+
+test('no servidor, o host planta bomba pelo input da rede', () => {
+  const servidor = new Match(52); servidor.reset(0, 'caos'); servidor.setNetworked({ remote: false });
+  servidor.countdown = 0; servidor.invasion.startsAt = 1e9;
+  servidor.claimFighter(0, 0);
+  servidor.tick(0.05, { 0: { plant: true, yaw: 0 } });
+  const doHost = servidor.bombs.filter((b) => b.owner === 'player');
+  assert.equal(doHost.length, 1, 'a bomba do host precisa existir no servidor');
+  assert.equal(doHost[0].moving, false);
+});
+test('no servidor, o host cozinha, arremessa e usa o especial pela rede', () => {
+  const servidor = new Match(52); servidor.reset(8, 'caos'); servidor.setNetworked({ remote: false });
+  servidor.countdown = 0; servidor.invasion.startsAt = 1e9;
+  servidor.tick(0.05, { 0: { attack: true, yaw: 0 } });
+  assert.ok(servidor.player.heldBomb, 'segurar cozinha');
+  servidor.tick(0.05, { 0: { yaw: 0 } });
+  assert.equal(servidor.player.heldBomb, null);
+  assert.equal(servidor.bombs.filter((b) => b.owner === 'player').length, 1);
+  servidor.tick(0.05, { 0: { special: true, yaw: 0 } });
+  assert.equal(servidor.player.chairReady, true, 'a tecla E do host chega ao servidor');
+});
+test('o host mira pelo input: o servidor usa o yaw que veio da rede', () => {
+  const servidor = new Match(52); servidor.reset(0, 'caos'); servidor.setNetworked({ remote: false });
+  servidor.countdown = 0; servidor.invasion.startsAt = 1e9;
+  servidor.tick(0.05, { 0: { yaw: 1.25, pitch: 0.4 } });
+  assert.equal(servidor.player.yaw, 1.25);
+  assert.equal(servidor.player.pitch, 0.4);
+});
+test('single player nao passa pelo caminho de rede', () => {
+  const g = new Match(52); g.reset(0, 'caos'); g.countdown = 0; g.invasion.startsAt = 1e9;
+  const yawAntes = g.player.yaw;
+  g.tick(0.05, { plant: true, yaw: 9 });
+  assert.equal(g.player.yaw, yawAntes, 'o input local nao dita a mira no single player');
+  assert.equal(g.bombs.length, 0, 'quem planta no single player e a chamada direta do engine');
+  assert.equal(g.throwBomb(true), true);
+  assert.equal(g.bombs.filter((b) => b.owner === 'player').length, 1);
+});
+
 console.log(JSON.stringify({ passed: names.length, checks: names }, null, 2));

@@ -1,7 +1,10 @@
 import * as T from '../vendor/three.module.js';
 import {SPECIALS, equipment} from './specials.mjs?v=20';
 
-export function createSpecialView({camera,scene,game,box,mesh,geometries,materials,textures}) {
+export function createSpecialView({camera,scene,game,box,mesh,geometries,materials,textures,viewer}) {
+  // Quem esta olhando: o heroi local, ou o boneco do convidado no multiplayer.
+  const me=()=>(viewer?viewer():game.player)||game.player;
+  const char=()=>game.characterOf?game.characterOf(me()):game.character;
   const root=new T.Group();camera.add(root);
   const mat=(color,opacity=1)=>{const m=new T.MeshBasicMaterial({color,transparent:opacity<1,opacity,depthTest:false,depthWrite:false});materials.push(m);return m;};
   const navy=mat(0x09223d),blue=mat(0x1f78bb),gold=mat(0xffd05c),cream=mat(0xffe8b8),red=mat(0xb9333f),dark=mat(0x371b28),silver=mat(0xa3bdca),purple=mat(0x8957c5);
@@ -72,21 +75,21 @@ export function createSpecialView({camera,scene,game,box,mesh,geometries,materia
   return {
     sync(time,reduced){
       const active=game.phase==='playing'&&game.countdown===0&&game.invasion.stage!=='arrival'&&!game.speechTime&&!game.flight;root.visible=active;
-      const eq=equipment(game),name=SPECIALS[game.character].asset,aspect=camera.aspect,compact=Math.min(1,aspect/.95),lift=reduced?0:game.equipTime/.45,cast=reduced?0:Math.sin(Math.min(1,game.actionAnim/.65)*Math.PI);
-      for(const [id,g] of held){g.visible=id===name&&(eq.time>0||game.actionAnim>0)&&!game.heldBomb;if(!g.visible)continue;
+      const eq=equipment(game,me()),name=SPECIALS[char()].asset,aspect=camera.aspect,compact=Math.min(1,aspect/.95),lift=reduced?0:me().equipTime/.45,cast=reduced?0:Math.sin(Math.min(1,me().actionAnim/.65)*Math.PI);
+      for(const [id,g] of held){g.visible=id===name&&(eq.time>0||me().actionAnim>0)&&!me().heldBomb;if(!g.visible)continue;
         g.scale.setScalar(compact);g.position.set((id==='handlebar'?0:.31)*compact,-.2-lift*.45+cast*.15,-.75);
         g.rotation.z=.06-cast*.2+(reduced?0:Math.sin(time*2)*.01);
         if(id==='workbook'){g.position.x=(.26-cast*.19)*compact;g.position.z=-.72-cast*.1;}
-        if(id==='handlebar'){g.position.y=-.37;g.rotation.z=reduced?0:Math.sin(time*16)*.006*(game.dashTime>0?3:1);}
+        if(id==='handlebar'){g.position.y=-.37;g.rotation.z=reduced?0:Math.sin(time*16)*.006*(me().dashTime>0?3:1);}
         if(g.userData.wind)g.userData.wind.children.forEach((c,i)=>c.position.x=reduced?0:Math.sin(time*5+i)*.03);
         if(g.userData.cloth)g.userData.cloth.children.forEach((c,i)=>c.position.z=reduced?0:Math.sin(time*4+i*.5)*.016);
       }
-      shield.visible=game.player.picanhaTime>0;shield.scale.setScalar(compact*1.05);shield.position.set(-.32*compact,-.19-lift*.4,-.69+game.shieldFlash*.045);shield.rotation.set(-.05,.18,-.09);rimGlow.opacity=.14+game.shieldFlash*.5+(reduced?0:Math.sin(time*7)*.04);
+      shield.visible=me().picanhaTime>0;shield.scale.setScalar(compact*1.05);shield.position.set(-.32*compact,-.19-lift*.4,-.69+game.shieldFlash*.045);shield.rotation.set(-.05,.18,-.09);rimGlow.opacity=.14+game.shieldFlash*.5+(reduced?0:Math.sin(time*7)*.04);
       const wind=game.specialEffects.find(e=>e.kind==='wind');gusts.forEach((m,i)=>{m.visible=!!wind;if(!wind)return;const f=1-wind.time/wind.max,d=f*10+i*.65;m.position.set(wind.x*2.7-Math.sin(wind.yaw)*d,1.3,wind.z*2.7-Math.cos(wind.yaw)*d);m.rotation.y=wind.yaw;m.scale.setScalar(.8+f*.8);});
       const swarm=game.specialEffects.find(e=>e.kind==='bats');bats.forEach((g,i)=>{g.visible=!!swarm;if(!swarm)return;const f=1-swarm.time/swarm.max;g.position.set((swarm.x+(swarm.tx-swarm.x)*f)*2.7+Math.sin(i*2+time*8)*.4,1.5+Math.cos(i+time*6)*.4,(swarm.z+(swarm.tz-swarm.z)*f)*2.7);g.rotation.y=camera.rotation.y;g.userData.wings.forEach((w,j)=>w.rotation.z=(j?1:-1)*Math.sin(time*24+i)*.7);});
-      const spots=game.flagTime>0&&active?game.occupationPreview():[];tiles.forEach((m,i)=>{const p=spots[i];m.visible=!!p;if(p){m.position.set(p.x*2.7,.065,p.z*2.7);m.material=previewMats[p.valid?1:0];}});
+      const spots=me().flagTime>0&&active?game.occupationPreview(me()):[];tiles.forEach((m,i)=>{const p=spots[i];m.visible=!!p;if(p){m.position.set(p.x*2.7,.065,p.z*2.7);m.material=previewMats[p.valid?1:0];}});
     },
-    equipped(){return [2,3,4,5,7].includes(game.character)&&(equipment(game).time>0||game.actionAnim>0)&&!game.heldBomb;},
+    equipped(){return [2,3,4,5,7].includes(char())&&(equipment(game,me()).time>0||me().actionAnim>0)&&!me().heldBomb;},
     destroy(){camera.remove(root);scene.remove(effectsRoot);},
   };
 }

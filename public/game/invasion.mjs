@@ -203,6 +203,39 @@ export class Invasion {
     }
     return false;
   }
+  // Estado completo para a rede. Referencias a lutadores viram indices, senao
+  // nao atravessam o JSON.
+  netState(game) {
+    const indexOf = (f) => (f === game.player ? 0 : game.enemies.indexOf(f) + 1);
+    return {
+      kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining,
+      intro: this.intro, introDuration: this.introDuration, wave: this.wave,
+      shots: this.shots, shotClock: this.shotClock, startsAt: this.startsAt,
+      lineup: this.lineup, schedule: this.schedule, omitted: this.omitted,
+      launchIndex: this.launchIndex, captureIndex: this.captureIndex, speechPlayed: this.speechPlayed,
+      lastTarget: this.lastTarget,
+      actor: { ...this.actor, target: this.actor.target ? indexOf(this.actor.target) : null },
+      targets: this.targets.map((t) => ({ ...t })),
+      impacts: this.impacts.map((i) => ({ ...i })),
+      cages: this.cages.map((c) => ({ id: c.id, x: c.x, z: c.z, time: c.time, victim: indexOf(c.victim) })),
+      captured: [...this.captured].map(indexOf),
+    };
+  }
+  // Recebe o estado do servidor e volta a apontar para os lutadores desta copia.
+  applyNetState(game, state) {
+    if (!state) return;
+    for (const key of ['kind','stage','warning','remaining','intro','introDuration','wave','shots','shotClock','startsAt','lineup','schedule','omitted','launchIndex','captureIndex','speechPlayed','lastTarget'])
+      if (state[key] !== undefined) this[key] = state[key];
+    const { target, ...actor } = state.actor || {};
+    Object.assign(this.actor, actor);
+    this.actor.target = target == null ? null : game.fighter(target);
+    this.targets = (state.targets || []).map((t) => ({ ...t }));
+    this.impacts = (state.impacts || []).map((i) => ({ ...i }));
+    this.cages = (state.cages || [])
+      .map((c) => ({ ...c, victim: game.fighter(c.victim) }))
+      .filter((c) => c.victim);
+    this.captured = new Set((state.captured || []).map((i) => game.fighter(i)).filter(Boolean));
+  }
   snapshot() {
     return { kind: this.kind, stage: this.stage, warning: this.warning, remaining: this.remaining, intro: this.intro, introDuration:this.introDuration, duration: INVASION_DURATION, wave: this.wave, lineup:this.lineup, schedule:this.schedule,
       caged: this.cages.find(c=>c.victim.id===undefined)?.time || 0,

@@ -17,6 +17,42 @@ const TILE = 2.7,
   ];
 export function createGame(canvas, onState, onError, isMultiplayer = false, socket = null, roomCode = null, playerIndex = 0) {
   let renderer;
+  function _doStart(character, mode, seed = null, humans = null, characters = null) {
+    if (seed !== null) game = new Match(seed);
+    // Todos os clientes resetam com o personagem do host, senao a arena sorteada diverge.
+    game.reset(character, mode);
+    if (isMultiplayer) game.setNetworked({ remote: true });
+    if (humans) for (const index of humans) game.claimFighter(index, characters?.[index]);
+    for (const key of Object.keys(keys)) delete keys[key];
+    held = false; drag = null; kick = 0; shake = 0; lastCountdown=-1;lastArenaTick=-1;lastArenaLocked=false;
+    rebuild();
+    initAudio(); soundtrack?.reset();
+    lock();
+    setTimeout(() => { if (!dead && game.phase === 'playing') game.speak(); }, 6500);
+    emit();
+  }
+  // Entidade que ESTE cliente controla: o heroi local, ou o rival do seu indice na sala.
+  // Rivais nascem sem pitch; sem esse default a camera recebe NaN e nada e desenhado.
+  // Desliza cada boneco remoto ate o ultimo lugar informado pelo servidor.
+  function smoothRemotes(dt) {
+    const blend = 1 - Math.exp(-14 * dt);
+    for (let i = 0; i < 9; i++) {
+      const f = game.fighter(i);
+      if (!f || i === playerIndex || !f.netTarget) continue;
+      f.x += (f.netTarget.x - f.x) * blend;
+      f.z += (f.netTarget.z - f.z) * blend;
+      let delta = f.netTarget.yaw - f.yaw;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      f.yaw += delta * blend;
+    }
+  }
+  function controlled() {
+    const own = isMultiplayer && playerIndex > 0 ? game.enemies[playerIndex - 1] : null;
+    if (!own) return game.player;
+    if (typeof own.pitch !== 'number') own.pitch = 0;
+    return own;
+  }
   try {
     renderer = new T.WebGLRenderer({
       canvas,
@@ -25,7 +61,8 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
     });
   } catch {
     onError('Ative a aceleração gráfica do navegador para usar o 3D.');
-    return { destroy() {} };
+    const matchApi = { syncSeed(seed) { game = new Match(seed); } };
+  return { ...matchApi, destroy() {} };
   }
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = T.SRGBColorSpace;
@@ -39,7 +76,7 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
   const camera = new T.PerspectiveCamera(73, 1, 0.07, 150);
   camera.rotation.order = 'YXZ';
   scene.add(camera);
-  const game = new Match();
+  let game = new Match();
   let dead = false,
     frame = 0,
     last = performance.now(),
@@ -606,12 +643,12 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
   const aimTarget = mesh(aimRoot, aimGeo, targetMat);
   aimTarget.rotation.x = -Math.PI / 2;
   function updateAim(dt) {
-    aimRoot.visible = game.phase === 'playing' && game.invasion.stage !== 'arrival' && !!game.heldBomb;
+    aimRoot.visible = game.phase === 'playing' && game.invasion.stage !== 'arrival' && !!controlled().heldBomb;
     if (!aimRoot.visible) return;
     arcClock += dt;
     if (arcClock < 1 / 60) return;
     arcClock = 0;
-    const prediction = game.trajectory();
+    const prediction = game.trajectory(controlled());
     if (!prediction) return;
     const points = prediction.points,
       pos = aimGeometry.attributes.position;
@@ -644,7 +681,7 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
     sprite.material=sprite.material.clone();materials.push(sprite.material);sprite.material.depthTest=false;sprite.material.depthWrite=false;sprite.renderOrder=100;
   }
   equippedSword.scale.setScalar(.7);equippedChair.scale.setScalar(.86);
-  const specialView=createSpecialView({camera,scene,game,box,mesh,geometries,materials,textures});
+  const specialView=createSpecialView({camera,scene,game,box,mesh,geometries,materials,textures,viewer:()=>controlled()});
   camera.add(hand);
   box(hand, 0.24, 0.35, 0.31, 0.34, -0.4, -0.55, mats.skin);
   box(hand, 0.28, 0.46, 0.34, 0.39, -0.67, -0.48, mats.dark);
@@ -920,7 +957,7 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
       const figure=g.userData.character;if(figure){const asleep=e.stun>0&&e.stunKind==='hypnosis';figure.position.y=asleep?.45:1.22+Math.abs(Math.sin(e.walk))*.035;figure.rotation.z=asleep?-1.4:Math.sin(e.walk)*.018;figure.scale.y=1-Math.abs(Math.sin(e.walk))*.012;if(e.alligator){const mat=globalSpecialView.alligatorMaterial(e.walk);if(mat)figure.material=mat;}}
       g.userData.sleep.visible=e.stun>0;g.userData.sleep.position.x=reduced?0:Math.sin(clock*4)*.2;
       g.userData.gaze.visible=game.hypnosisTarget()===e;
-      g.userData.facing.visible=game.bookTime>0&&!(e.stun>0);
+      g.userData.facing.visible=controlled().bookTime>0&&!(e.stun>0);
       g.rotation.y = Math.atan2(camera.position.x/TILE - e.x, camera.position.z/TILE - e.z);
       g.userData.facing.rotation.y=(e.yaw||0)-g.rotation.y;
       g.visible = e.invulnerable <= 0 || Math.sin(clock * 30) > 0;
@@ -1102,7 +1139,7 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
   resize();
   let previousSnapshot = '';
   function emit() {
-    const snapshot = game.snapshot(),
+    const snapshot = game.snapshot(playerIndex),
       serialized = JSON.stringify(snapshot);
     if (serialized !== previousSnapshot) {
       onState(snapshot);
@@ -1124,8 +1161,7 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
   function unlock() {
     if (document.pointerLockElement === canvas) document.exitPointerLock();
   }
-  function pause() {
-    if (!['playing', 'spectating'].includes(game.phase)) return;
+  function pause() { if(isMultiplayer)return; if (!['playing', 'spectating'].includes(game.phase)) return;
     pausedPhase = game.phase;
     game.phase = 'paused';
     held = false;
@@ -1173,13 +1209,8 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
     }
     keys[e.code] = true;
     if (e.repeat) return;
-    if (isMultiplayer && socket) {
-      if (e.code === 'Space') socket.emit('input', { roomCode, input: { throwBomb: true } });
-      if (e.code === 'KeyE' && !e.repeat) socket.emit('input', { roomCode, input: { special: true } });
-      if (e.code === 'KeyQ' && game.phase === 'playing') {
-        if(game.flight) socket.emit('input', { roomCode, input: { cycleTarget: true } });
-        else if(!game.speechTime) socket.emit('input', { roomCode, input: { speak: true } });
-      }
+    if (isMultiplayer && playerIndex > 0) {
+      // Convidado: tudo viaja no input do quadro, senao um emit avulso apaga o movimento.
     } else {
       if (e.code === 'Space') game.throwBomb(true);
       if (e.code === 'KeyE' && !e.repeat) game.special();
@@ -1192,10 +1223,11 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
   bind(document, 'mousemove', (e) => {
     if (game.phase !== 'playing' || game.invasion.stage === 'arrival') return;
     if (document.pointerLockElement === canvas || held) {
-      game.player.yaw -= e.movementX * 0.0018 * sensitivity;
-      game.player.pitch = Math.max(
+      const p = controlled();
+      p.yaw -= e.movementX * 0.0018 * sensitivity;
+      p.pitch = Math.max(
         -1.35,
-        Math.min(1.35, game.player.pitch - e.movementY * 0.0018 * sensitivity),
+        Math.min(1.35, p.pitch - e.movementY * 0.0018 * sensitivity),
       );
     }
   });
@@ -1207,26 +1239,27 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
     } else if (e.button === 0) {
       held = true;
       lock();
-      game.primaryPress();
+      if (controlled() === game.player) game.primaryPress();
     }
   });
   bind(canvas, 'pointermove', (e) => {
     if (!drag || drag.id !== e.pointerId || game.phase !== 'playing' || game.invasion.stage === 'arrival') return;
-    game.player.yaw -= (e.clientX - drag.x) * 0.005;
-    game.player.pitch = Math.max(
+    const p = controlled();
+    p.yaw -= (e.clientX - drag.x) * 0.005;
+    p.pitch = Math.max(
       -1,
-      Math.min(1, game.player.pitch - (e.clientY - drag.y) * 0.004),
+      Math.min(1, p.pitch - (e.clientY - drag.y) * 0.004),
     );
     drag.x = e.clientX;
     drag.y = e.clientY;
   });
   bind(window, 'pointerup', (e) => {
-    if (e.button === 0 && held) game.releaseBomb();
+    if (e.button === 0 && held && controlled() === game.player) game.releaseBomb();
     held = false;
     drag = null;
   });
   bind(window, 'pointercancel', () => {
-    if (held) game.releaseBomb(true);
+    if (held && controlled() === game.player) game.releaseBomb(true);
     held = false;
     drag = null;
     Object.keys(keys).forEach((k) => delete keys[k]);
@@ -1255,11 +1288,11 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
   const invaderView = createInvaderView({scene,game,box,mesh,material,bombModel,materials,geometries,textures,onError});
   const globalSpecialView=createGlobalSpecialView({scene,game,box,mesh,materials,geometries,textures,onError});
   function loop(now) {
-    const equipLift=reduced?0:game.equipTime/.45;
-    equippedSword.visible=game.swordTime>0&&!game.heldBomb;
-    const slash=reduced?0:Math.sin(Math.max(0,game.swordSwing)/.2*Math.PI);
+    const equipLift=reduced?0:controlled().equipTime/.45;
+    equippedSword.visible=controlled().swordTime>0&&!controlled().heldBomb;
+    const slash=reduced?0:Math.sin(Math.max(0,controlled().swordSwing)/.2*Math.PI);
     equippedSword.rotation.z=-slash*.9;equippedSword.position.set(.29-slash*.18,-.16+slash*.12-equipLift*.32,-.68-slash*.2);
-    equippedChair.visible=game.chairReady&&!game.heldBomb;
+    equippedChair.visible=controlled().chairReady&&!controlled().heldBomb;
     equippedChair.position.set(.3,-.08-equipLift*.36,-.82);equippedChair.rotation.z=-equipLift*.3;
     if (dead) return;
     const elapsedFrame = Math.min((now - last) / 1000, 0.25);
@@ -1267,7 +1300,7 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
     last = now;
     clock += dt;
     if (['playing', 'spectating'].includes(game.phase)) {
-      const p = game.player;
+      const p = controlled();
       if (game.invasion.stage !== 'arrival') {
         if (keys.ArrowLeft) p.yaw += dt * 1.7;
         if (keys.ArrowRight) p.yaw -= dt * 1.7;
@@ -1279,14 +1312,14 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
         right: keys.KeyD,
         run: keys.ShiftLeft || keys.ShiftRight,
         attack: held,
+        plant: keys.Space,
+        special: keys.KeyE,
         ascend:keys.Space,descend:keys.ControlLeft||keys.ControlRight,
       };
       // Catch up in small physics steps instead of stretching seconds at low FPS.
-      if (isMultiplayer && socket) {
-        socket.emit('input', { roomCode, input });
-      } else {
-        advanceFrame(game,elapsedFrame,input);
-      }
+      if (isMultiplayer && socket) { socket.emit('input', { roomCode, input: { ...input, yaw: p.yaw, pitch: p.pitch } }); }
+      advanceFrame(game,elapsedFrame, isMultiplayer ? { [playerIndex]: input } : input);
+      if (isMultiplayer) smoothRemotes(dt);
       events();
       syncWorld(dt);
       const moving = keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD;
@@ -1396,26 +1429,21 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
   }
   frame = requestAnimationFrame(loop);
   emit();
-  return {
+  const matchApi = { syncSeed(seed) { game = new Match(seed); } };
+  return { ...matchApi,
     enterLobby() {
       initAudio();soundtrack?.reset();
       [523.25,659.25,783.99,1046.5].forEach((n,i)=>tone(n,.14,'square',.1,i*.075));
     },
+        
     start(character, mode) {
-      game.reset(character, mode);
-      for (const key of Object.keys(keys)) delete keys[key];
-      held = false;
-      drag = null;
-      rebuild();
-      kick = 0;
-      shake = 0;
-      initAudio();
-      soundtrack?.reset();lastCountdown=-1;lastArenaTick=-1;lastArenaLocked=false;
-      lock();
-      emit();
-      setTimeout(() => {
-        if (!dead && game.phase === 'playing') game.speak();
-      }, 6500);
+      if (isMultiplayer && socket) {
+        socket.emit('startGame', { roomCode, character, mode });
+        lock();
+        initAudio();
+      } else {
+        _doStart(character, mode);
+      }
     },
     pause,
     resume,
@@ -1448,11 +1476,65 @@ export function createGame(canvas, onState, onError, isMultiplayer = false, sock
     key(code, down) {
       keys[code] = down;
     },
-    mute(value) {
+        mute(value) {
       muted = value;
       if(!value)initAudio();
       if (master) master.gain.setTargetAtTime(value ? 0 : .32,audio.currentTime,.025);
       if (value) window.speechSynthesis?.cancel();
+    },
+    setMultiplayer(soc, room, idx) {
+      let wasSpectating = false;
+      socket = soc;
+      roomCode = room;
+      playerIndex = idx;
+      isMultiplayer = true;
+      socket.on('matchStarted', (data) => { _doStart(data.character, data.mode, data.seed, data.humans, data.characters); });
+                  socket.on('tick', (serverState) => {
+        if (!game) return;
+        if (serverState.phase) game.phase = serverState.phase;
+        // Cada tela vai para a arquibancada pela morte do PROPRIO boneco, nao pela
+        // do host. A partida no servidor segue em 'playing' para os vivos.
+        if (game.phase === 'playing' && (game.fighter(playerIndex)?.hp ?? 1) <= 0) {
+          game.phase = 'spectating';
+          if (!wasSpectating) { wasSpectating = true; game.events.push({ type: 'spectate' }); }
+        } else if (game.phase === 'playing') wasSpectating = false;
+        // O relogio e a contagem regressiva sao do servidor; o cliente so exibe.
+        if (serverState.time !== undefined) game.elapsed = Math.max(0, 180 - serverState.time);
+        if (serverState.countdown !== undefined) game.countdown = serverState.countdown;
+        if (serverState.score !== undefined) game.score = serverState.score;
+        if (serverState.kills !== undefined) game.kills = serverState.kills;
+        if (game.phase !== 'playing') return;
+        
+        serverState.players.forEach((sp, i) => {
+          const target = game.fighter(i);
+          if (!target) return;
+          target.hp = sp.hp;
+          // O proprio boneco e previsto localmente; os outros ganham um alvo para
+          // onde deslizar, senao andariam aos trancos a cada pacote.
+          if (i !== playerIndex) target.netTarget = { x: sp.x, z: sp.z, yaw: sp.rot };
+        });
+        
+        // Listas que agora sao do servidor. Reaproveitamos o objeto local quando o
+        // id ja existe, para o render nao recriar a malha a cada pacote.
+        for (const key of ['items', 'fires', 'storm', 'chairs', 'barricades', 'decoys', 'specialEffects']) {
+          if (!serverState[key]) continue;
+          const local = new Map(game[key].map((o) => [o.id, o]));
+          game[key] = serverState[key].map((o) => Object.assign(local.get(o.id) || {}, o));
+        }
+        if (serverState.map) game.map = serverState.map;
+        if (serverState.invasion) game.invasion.applyNetState(game, serverState.invasion);
+        if (serverState.bombs) {
+          const localBombs = {};
+          game.bombs.forEach(b => localBombs[b.id] = b);
+          game.bombs = serverState.bombs.map(sb => {
+             const lb = localBombs[sb.id];
+             if (lb) {
+               lb.x = sb.x; lb.z = sb.z; lb.y = sb.y; lb.fuse = sb.fuse; return lb;
+             }
+             return sb;
+          });
+        }
+      });
     },
     destroy() {
       dead = true;
